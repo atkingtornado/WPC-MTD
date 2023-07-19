@@ -3,7 +3,7 @@ import pathlib
 import datetime
 import numpy as np
 from netCDF4 import Dataset
-from .utils import adjust_date_range
+from .utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig
 
 @dataclasses.dataclass
 class WPCMTD:
@@ -16,6 +16,7 @@ class WPCMTD:
     temp_dir:       pathlib.PosixPath # Location where all temporary files are stored
     fig_path:       pathlib.PosixPath # Location for figure generation
     grib_path:      pathlib.PosixPath # Location of model GRIB files
+    config_path:    pathlib.PosixPath # Location of MET config files
     latlon_dims:    [float] # Latitude/longitude dimensions for plotting [WLON,SLAT,ELON,NLAT]
     beg_date:       datetime.datetime # Beginning time of retrospective runs
     end_date:       datetime.datetime # Ending time of retrospective runs
@@ -29,6 +30,9 @@ class WPCMTD:
     grib_path_des:  str   # An appended string label for the temporary directory name
     thresh:         float # Precip. threshold for defining objects (inches) (specifiy single value)
     end_fcst_hrs:   float # Last forecast hour to be considered
+    conv_radius:    int   # Radius of the smoothing (grid squares)
+    min_volume:     int   # Area threshold (grid squares) to keep an object
+    ti_thresh:      float # Total interest threshold for determining matches
 
     grib_path_temp: pathlib.PosixPath = None
     lat:            float = None
@@ -261,11 +265,14 @@ class WPCMTD:
                 APCP_str_end = 'A'+'{:02d}'.format(int(time_inc_end.seconds/(3600)))+'{:02d}'.format(int(((time_inc_end.seconds \
                      % 3600)/60 * (time_inc_end.seconds >= 3600)) + ((time_inc_end.seconds < 3600)*(time_inc_end.seconds / 60))))+'00'
 
-                # #Given the variables, create proper config files
-                # if 'NEWSe' in ''.join(self.load_model) or '15min' in ''.join(self.load_model):
-                #     config_name = METConFigGenV100.set_MTDConfig_15min(CON_PATH,'MTDConfig_USE_SAMP',thres,conv_radius,min_volume,end_fcst_hrs,ti_thresh,APCP_str_end)
-                # else:
-                #     config_name = METConFigGenV100.set_MTDConfig(CON_PATH,'MTDConfig_USE_SAMP',thres,conv_radius,min_volume,end_fcst_hrs,ti_thresh,APCP_str_end)
+                #Given the variables, create proper config files
+                mtd_conf_filename = 'MTDConfig_USE_SAMP'+'_f'+str(int(self.end_fcst_hrs))+'_p'+APCP_str_end+'_t'+str(self.thresh)
+                mtd_conf_fullpath = pathlib.Path(self.config_path, mtd_conf_filename)
+
+                if 'NEWSe' in ''.join(self.load_model) or '15min' in ''.join(self.load_model):
+                    config_name = gen_mtdconfig_15m(mtd_conf_fullpath,self.thresh,self.conv_radius,self.min_volume,self.ti_thresh,APCP_str_end)
+                else:
+                    config_name = gen_mtdconfig(mtd_conf_fullpath,self.thresh,self.conv_radius,self.min_volume,self.ti_thresh,APCP_str_end)
 
                 # #Isolate member number if there are multiple members
                 # if 'mem' in load_data_nc[model]:
