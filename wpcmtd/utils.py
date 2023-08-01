@@ -1,3 +1,4 @@
+import os
 import datetime
 import pathlib
 
@@ -237,3 +238,116 @@ def gen_mtdconfig_15m(save_filename,raw_thres,conv_radius,min_volume,total_inter
     f.close()
 
     return(save_filename)
+
+def load_data_str(grib_path, load_data, init_yrmondayhr, acc_int, fcst_hr_str, fcst_min_str):
+
+#####Comment out when not testing function#################
+#load_data       = load_data[0]
+#init_yrmondayhr = init_yrmondayhr[0]
+#acc_int         = acc_int[0]
+###########################################################
+
+    #Default list of model strings
+    data_default=['ST4'     ,'MRMS2min'    ,'MRMS15min'       ,'MRMS'              ,'HIRESNAM'           ,'HIRESNAMP'         ,'HIRESWARW'         , \
+        'HIRESWARW2'        ,'HIRESWFV3'   ,'HRRRv2'          ,'HRRRv3'            ,'HRRRv4'             ,'NSSL-OP'           , \
+        'NSSL-ARW-CTL'      ,'NSSL-ARW-N1' ,'NSSL-ARW-P1'     ,'NSSL-ARW-P2'       ,'NSSL-NMB-CTL'       ,'NSSL-NMB-N1'       , \
+        'NSSL-NMB-P1'       ,'NSSL-NMB-P2' ,'HRAM3E'          ,'HRAM3G'            ,'NEWSe5min'          ,'NEWSe60min'        , \
+        'HRRRe60min'        ,'FV3LAM'      ,'HRRRv415min']  #Array of total model strings
+    grib_path = str(grib_path)
+    #Create proper string for loading of model data
+    if data_default[0] in load_data[:-2]: #Observation/analysis for ST4
+        #ST4 is treated a bit differently, since the analysis time changes, hence the date and folder
+        acc_int_str = '{:02d}'.format(int(acc_int))
+        newtime= datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]))+ \
+            datetime.timedelta(hours=int(fcst_hr_str)+int(init_yrmondayhr[-2:]))
+        data_str = [grib_path+'/ST4/'+newtime.strftime('%Y%m%d')+'/ST4.'+newtime.strftime('%Y%m%d')+ \
+            newtime.strftime('%H')+'.'+acc_int_str+'h']
+    elif data_default[1] in load_data[:-2]: #Observation/analysis for MRMS 2-min data
+        #MRMS is treated a bit differently, since the analysis time changes, hence the date and folder
+        newtime= datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]))+ \
+            datetime.timedelta(hours=int(fcst_hr_str)+float(fcst_min_str)/60+int(init_yrmondayhr[-2:]))
+        data_str = [grib_path+'/MRMS/'+newtime.strftime('%Y%m%d')+'/MRMS_PrecipRate_00.00_'+newtime.strftime('%Y%m%d')+ \
+            '-'+newtime.strftime('%H')+newtime.strftime('%M')+'00.grib2']
+    elif data_default[2] in load_data[:-2]: #Observation/analysis for MRMS 15-min data
+        #MRMS is treated a bit differently, since the analysis time changes, hence the date and folder
+        newtime= datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]))+ \
+            datetime.timedelta(hours=int(fcst_hr_str)+float(fcst_min_str)/60+int(init_yrmondayhr[-2:]))
+        data_str = [grib_path+'/MRMS_15min/'+newtime.strftime('%Y%m%d')+'/MRMS_'+newtime.strftime('%Y%m%d')+'-'+newtime.strftime('%H')+ \
+            newtime.strftime('%M')+'00.grib2']
+    elif data_default[3] in load_data[:-2]: #Observation/analysis for MRMS 1-hour data
+        #MRMS is treated a bit differently, since the analysis time changes, hence the date and folder
+        newtime= datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]))+ \
+            datetime.timedelta(hours=int(fcst_hr_str)+float(fcst_min_str)/60+int(init_yrmondayhr[-2:]))
+        data_str = [grib_path+'/MRMS/'+newtime.strftime('%Y%m%d')+'/MRMS_'+newtime.strftime('%Y%m%d')+'-'+newtime.strftime('%H')+ \
+            newtime.strftime('%M')+'00.grib2']
+    elif data_default[4] in load_data[:-2] and not data_default[2] in load_data[:-2]:   #NAM NEST
+        data_str = [grib_path+'/HIRESNAM/'+init_yrmondayhr[:-2]+'/nam.t'+init_yrmondayhr[-2:]+'z.conusnest.hiresf'+fcst_hr_str+'.tm00.grib2.mod']
+    elif data_default[5] in load_data[:-2]: #NAM NEST PARALLEL
+        data_str = [grib_path+'/HIRESNAMP/'+init_yrmondayhr[:-2]+'/nam_conusnest_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'f0'+fcst_hr_str+'.grib2']
+    elif data_default[6] in load_data[:-2] and '2' not in load_data[:-2]: #ARW CONUS
+        data_str = [grib_path+'/HIRESW/'+init_yrmondayhr[:-2]+'/hiresw.t'+init_yrmondayhr[-2:]+'z.arw_5km.f'+fcst_hr_str+'.conus.grib2.mod']
+    elif data_default[7] in load_data[:-2]: #ARW CONUS Member 2
+        data_str = [grib_path+'/HIRESW/'+init_yrmondayhr[:-2]+'/hiresw.t'+init_yrmondayhr[-2:]+'z.arw_5km.f'+fcst_hr_str+'.conusmem2.grib2.mod']
+    elif data_default[8] in load_data[:-2]: #FV3 CONUS
+        data_str = [grib_path+'/HIRESW/'+init_yrmondayhr[:-2]+'/hiresw.t'+init_yrmondayhr[-2:]+'z.fv3_5km.f'+fcst_hr_str+'.conus.grib2.mod']
+    elif data_default[9] in load_data[:-2]: #HRRRv2
+        data_str = [grib_path+'/HRRRv2/'+init_yrmondayhr[:-2]+'/hrrr.t'+init_yrmondayhr[-2:]+'z.wrfsfcf'+fcst_hr_str+'.grib2.mod']
+    elif data_default[10] in load_data[:-2]: #HRRRv3
+        data_str = [grib_path+'/HRRRv3/'+init_yrmondayhr[:-2]+'/hrrr_2d_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+fcst_hr_str+'.grib2']
+    elif data_default[11] in load_data[:-2] and not '15min' in load_data[:-2]: #HRRRv4
+        data_str = [grib_path+'/HRRRv4/'+init_yrmondayhr[:-2]+'/hrrr_2d_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+fcst_hr_str+'.grib2']  
+    elif data_default[12] in load_data[:-2]: #NSSL CONTROL
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[13] in load_data[:-2]: #NSSL ARW CTL
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_arw_ctl_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[14] in load_data[:-2]: #NSSL ARW N1
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_arw_n1_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[15] in load_data[:-2]: #NSSL ARW P1
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_arw_p1_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[16] in load_data[:-2]: #NSSL ARW P2
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_arw_p2_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[17] in load_data[:-2]: #NSSL NMB CTL
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_nmb_ctl_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[18] in load_data[:-2]: #NSSL NMB N1
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_nmb_n1_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[19] in load_data[:-2]: #NSSL NMB P1
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_nmb_p1_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[20] in load_data: #NSSL NMB P2
+        data_str = [grib_path+'/NSSL/'+init_yrmondayhr[:-2]+'/wrf4nssl_nmb_p2_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'.f'+fcst_hr_str+'.mod2']
+    elif data_default[21] in load_data[:-2]: #HRAM3E
+        data_str = [grib_path+'/WWE2017/'+init_yrmondayhr[:-2]+'/hram3e_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'f0'+fcst_hr_str+'.grib2']
+    elif data_default[22] in load_data[:-2]: #HRAM3G
+        data_str = [grib_path+'/WWE2017/'+init_yrmondayhr[:-2]+'/hram3g_'+init_yrmondayhr[:-2]+init_yrmondayhr[-2:]+'f0'+fcst_hr_str+'.grib2']
+    elif data_default[23] in load_data[:-2]: #NEWSe5min
+        initime = datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]),int(init_yrmondayhr[8::]))
+        newtime = datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]))+ \
+            datetime.timedelta(hours=int(fcst_hr_str)+float(fcst_min_str)/60+int(init_yrmondayhr[-2:]))
+
+        if int(load_data[load_data.find('mem')+3:load_data.find('mem')+5]) < 10:
+            ens_mem = load_data[load_data.find('mem')+4:load_data.find('mem')+5]
+        else:
+            ens_mem = load_data[load_data.find('mem')+3:load_data.find('mem')+5]
+
+        data_str = [grib_path+'/NEWSe/NEWSe_Min/'+initime.strftime('%Y%m%d')+'/NEWSe_'+initime.strftime('%Y%m%d')+ \
+            '_i'+initime.strftime('%H')+initime.strftime('%M')+'_m'+ens_mem+'_f'+newtime.strftime('%H')+newtime.strftime('%M')+ \
+            '.nc']
+    elif data_default[24] in load_data[:-2]: #NEWSe60min
+        if int(load_data[load_data.find('mem')+3:load_data.find('mem')+5]) < 10:
+            ens_mem = load_data[load_data.find('mem')+4:load_data.find('mem')+5]
+        else:
+            ens_mem = load_data[load_data.find('mem')+3:load_data.find('mem')+5]
+        data_str = [grib_path+'/NEWSe/NEWSe_Hour/'+init_yrmondayhr[:-2]+'/NEWSe_'+init_yrmondayhr[:-2]+'_i'+init_yrmondayhr[-2:]+'_m'+ens_mem+'_f'+fcst_hr_str+'.grb2']
+    elif data_default[25] in load_data[:-2]: #HRRRe60min
+        ens_mem = load_data[load_data.find('mem')+3:load_data.find('mem')+5]
+        data_str = [grib_path+'/HRRRe/'+init_yrmondayhr[:-2]+'/mem'+ens_mem+'_hrrr_ens_'+init_yrmondayhr+fcst_hr_str+'.grib2']
+    elif data_default[26] in load_data[:-2]: #FV3LAM
+        if load_data[0:load_data.find('_')] == 'FV3LAM':
+            data_str = [grib_path+'/FV3LAM/'+init_yrmondayhr[:-2]+'/fv3lam.t'+init_yrmondayhr[-2:]+'z.conus.testbed.f'+fcst_hr_str+'.grib2.mod']
+        elif load_data[0:load_data.find('_')] == 'FV3LAMdax':
+            data_str = [grib_path+'/FV3LAMdax/'+init_yrmondayhr[:-2]+'/fv3lamdax.t'+init_yrmondayhr[-2:]+'z.conus.testbed.f'+fcst_hr_str+'.grib2.mod']
+        elif load_data[0:load_data.find('_')] == 'FV3LAMda':
+            data_str = [grib_path+'/FV3LAMda/'+init_yrmondayhr[:-2]+'/fv3lamda.t'+init_yrmondayhr[-2:]+'z.conus.testbed.f'+fcst_hr_str+'.grib2.mod']
+    elif data_default[27] in load_data[:-2]: #HRRRv415min
+        data_str = [grib_path+'/HRRRv4_SubHourly/'+init_yrmondayhr[:-2]+'/hrrr_2d_'+init_yrmondayhr+fcst_hr_str+fcst_min_str+'.grib2']
+
+    return data_str

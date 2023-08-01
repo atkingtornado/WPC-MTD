@@ -1,9 +1,10 @@
+import os
 import dataclasses
 import pathlib
 import datetime
 import numpy as np
 from netCDF4 import Dataset
-from .utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig
+from .utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig, load_data_str
 
 @dataclasses.dataclass
 class WPCMTD:
@@ -39,6 +40,7 @@ class WPCMTD:
     lon:            float = None
     offset_fcsthr:  [float] = dataclasses.field(default_factory=list) 
     acc_int:        [int] = dataclasses.field(default_factory=list) 
+    init_yrmondayhr:[] = dataclasses.field(default_factory=list) 
 
 
     # Perform post-initalization checks and property updates based on initial values
@@ -121,12 +123,9 @@ class WPCMTD:
 
         #Convert numbers to strings of proper length
         yrmondayhr=curr_date.strftime('%Y%m%d%H')
-        
-        #Use list comprehension to cat on '.nc' to model list
-        load_data_nc = [x + '.nc' for x in self.load_data]
 
         #Given the initalization hour, choose the most recent run for each model, archive initialization times
-        init_yrmondayhr=[]
+        self.init_yrmondayhr=[]
         for model in range(len(self.load_data)): #Through the models
             if model_default[0] in self.load_data[model]:          #ST4 (Depends on specified acc. interval)
                 if (self.pre_acc == 6 or self.pre_acc == 12 or self.pre_acc == 18 or self.pre_acc == 24): # 6 hour acc. (24 hr acc. takes to long operationally)
@@ -151,7 +150,7 @@ class WPCMTD:
             elif model_default[4]  in self.load_data[model]:       #NAMNEST AND NAMNESTP
                 run_times=np.linspace(0,24,5)
                 #Accumulation interval depends on date for NAM and also user specificed precipitation interval
-                if pygrib.datetime_to_julian(curdate) >= pygrib.datetime_to_julian(datetime.datetime(2017,3,21,6,0)):
+                if pygrib.datetime_to_julian(curr_date) >= pygrib.datetime_to_julian(datetime.datetime(2017,3,21,6,0)):
                     self.acc_int=np.append(self.acc_int,1)
                 else:
                     #If desired interval (pre_acc) is one but we are using earlier NAM data, throw error
@@ -197,13 +196,13 @@ class WPCMTD:
                 self.offset_fcsthr=np.append(self.offset_fcsthr,init_offset+lag)
                 #Determine yrmondayhr string from above information
                 curdate_temp=curr_date-datetime.timedelta(hours=int(self.offset_fcsthr[model]))
-                init_yrmondayhr=np.append(init_yrmondayhr,curdate_temp.strftime('%Y%m%d%H'))
+                self.init_yrmondayhr=np.append(self.init_yrmondayhr,curdate_temp.strftime('%Y%m%d%H'))
             else: #If lag is misspecified, compute with no lag
                 lag = 0
                 init_offset = curr_date.hour - run_times[np.argmax(run_times>curr_date.hour)-1]
                 self.offset_fcsthr=np.append(self.offset_fcsthr,init_offset+lag)
                 curdate_temp=curr_date-datetime.timedelta(hours=int(self.offset_fcsthr[model]))
-                init_yrmondayhr=np.append(init_yrmondayhr,curdate_temp.strftime('%Y%m%d%H'))
+                self.init_yrmondayhr=np.append(self.init_yrmondayhr,curdate_temp.strftime('%Y%m%d%H'))
         # Create temporary directory
         self.grib_path_temp=pathlib.Path(self.temp_dir,yrmondayhr+'_p_'+str(self.pre_acc)+'_t'+str(self.thresh)+'_'+self.grib_path_des)
         self.grib_path_temp.mkdir(parents=True, exist_ok=True)
@@ -274,69 +273,72 @@ class WPCMTD:
                 else:
                     config_name = gen_mtdconfig(mtd_conf_fullpath,self.thresh,self.conv_radius,self.min_volume,self.ti_thresh,APCP_str_end)
 
-                # #Isolate member number if there are multiple members
-                # if 'mem' in load_data_nc[model]:
-                #     mem = np.append(mem,'_m'+load_data_nc[model][load_data_nc[model].find('mem')+3:load_data_nc[model].find('mem')+5])
-                # else:
-                #     mem = np.append(mem,'')
+                #Use list comprehension to cat on '.nc' to model list
+                load_data_nc = [x + '.nc' for x in self.load_data]
+
+                #Isolate member number if there are multiple members
+                if 'mem' in load_data_nc[model]:
+                    mem = np.append(mem,'_m'+load_data_nc[model][load_data_nc[model].find('mem')+3:load_data_nc[model].find('mem')+5])
+                else:
+                    mem = np.append(mem,'')
                     
-                # #Determine lag from string specification
-                # mod_lag = int(load_data[model][load_data[model].find('lag')+3:load_data[model].find('lag')+5])
+                #Determine lag from string specification
+                mod_lag = int(self.load_data[model][self.load_data[model].find('lag')+3:self.load_data[model].find('lag')+5])
 
-                # #NEWSe 60min files only store accumulated precip. Must load previous hour in instances of lag
-                # if 'NEWSe60min' in load_data[model] and mod_lag > 0:
-                #     hrs_all = np.arange(hrs[0]-1,hrs[-1]+pre_acc,pre_acc)
-                #     data_success       = np.concatenate((data_success,np.ones([1, len(load_data)])),axis = 0)
-                # else: 
-                #     hrs_all = np.arange(hrs[0],hrs[-1]+pre_acc,pre_acc)
+                #NEWSe 60min files only store accumulated precip. Must load previous hour in instances of lag
+                if 'NEWSe60min' in self.load_data[model] and mod_lag > 0:
+                    hrs_all = np.arange(self.hrs[0]-1,self.hrs[-1]+self.pre_acc,self.pre_acc)
+                    data_success       = np.concatenate((data_success,np.ones([1, len(self.load_data)])),axis = 0)
+                else: 
+                    hrs_all = np.arange(self.hrs[0],self.hrs[-1]+self.pre_acc,self.pre_acc)
 
-                # while 1: #In operational mode, wait for a while to make sure all data comes in
+                while 1: #In operational mode, wait for a while to make sure all data comes in
 
-                #     #When snow_mask = True, there is no ST4 analysis mask, so ues the model CSNOW (will utitlize MRMS later)
-                #     try:
-                #         data_name_grib_prev  = data_name_grib
-                #     except NameError:
-                #         data_name_grib_prev  = []
+                    #When snow_mask = True, there is no ST4 analysis mask, so ues the model CSNOW (will utitlize MRMS later)
+                    try:
+                        data_name_grib_prev  = data_name_grib
+                    except NameError:
+                        data_name_grib_prev  = []
                     
-                #     fcst_hr_count = 0
-                #     data_name_grib        = []
-                #     data_name_nc          = []
-                #     data_name_nc_prev   = []
-                #     for fcst_hr in hrs_all: #Through the forecast hours
+                    fcst_hr_count = 0
+                    data_name_grib        = []
+                    data_name_nc          = []
+                    data_name_nc_prev   = []
+                    for fcst_hr in hrs_all: #Through the forecast hours
         
-                #         #Create proper string of last hour loaded to read in MTD file
-                #         last_fcst_hr_str = '{:02d}'.format(int(fcst_hr+offset_fcsthr[model]))
+                        #Create proper string of last hour loaded to read in MTD file
+                        last_fcst_hr_str = '{:02d}'.format(int(fcst_hr+self.offset_fcsthr[model]))
         
-                #         #Sum through accumulated precipitation interval
-                #         sum_hr_count = 0
-                #         data_name_temp = []
-                #         data_name_temp_part = []
+                        #Sum through accumulated precipitation interval
+                        sum_hr_count = 0
+                        data_name_temp = []
+                        data_name_temp_part = []
         
-                #         for sum_hr in np.arange(pre_acc-acc_int[model],-acc_int[model],-acc_int[model]):
+                        for sum_hr in np.arange(self.pre_acc-self.acc_int[model],-self.acc_int[model],-self.acc_int[model]):
                         
-                #             #range(int(pre_acc) - int(acc_int[model]),-1,int(-acc_int[model])):
+                            #range(int(self.pre_acc) - int(acc_int[model]),-1,int(-acc_int[model])):
                             
-                #             #Determine the forecast hour and min to load given current forecast hour, summing location and offset
-                #             fcst_hr_load = float(fcst_hr) + offset_fcsthr[model] - float(round(sum_hr,2))
-                #             fcst_hr_str  = '{:02d}'.format(int(fcst_hr_load))
-                #             fcst_min_str = '{:02d}'.format(int(round((fcst_hr_load-int(fcst_hr_load))*60)))
+                            #Determine the forecast hour and min to load given current forecast hour, summing location and offset
+                            fcst_hr_load = float(fcst_hr) + self.offset_fcsthr[model] - float(round(sum_hr,2))
+                            fcst_hr_str  = '{:02d}'.format(int(fcst_hr_load))
+                            fcst_min_str = '{:02d}'.format(int(round((fcst_hr_load-int(fcst_hr_load))*60)))
         
-                #             #Determine the end date for the summation of precipitation accumulation
-                #             curdate_ahead = curdate+datetime.timedelta(hours=fcst_hr_load - offset_fcsthr[model])
+                            #Determine the end date for the summation of precipitation accumulation
+                            curdate_ahead = curr_date+datetime.timedelta(hours=fcst_hr_load - self.offset_fcsthr[model])
         
-                #             #Use function to load proper data filename string
-                #             data_name_temp = np.append(data_name_temp,METLoadEnsemble.loadDataStr(GRIB_PATH, load_data[model], init_yrmondayhr[model], acc_int[model], fcst_hr_str, fcst_min_str))
+                            #Use function to load proper data filename string
+                            data_name_temp = np.append(data_name_temp,load_data_str(self.grib_path, self.load_data[model], self.init_yrmondayhr[model], self.acc_int[model], fcst_hr_str, fcst_min_str))
         
-                #             #Find location of last slash to isolate file name from absolute path
-                #             for i in range(0,len(data_name_temp[sum_hr_count])):
-                #                 if '/' in data_name_temp[sum_hr_count][i]:
-                #                     str_search = i + 1
-                #             data_name_temp_part = np.append(data_name_temp_part, data_name_temp[sum_hr_count][str_search::])
+                            #Find location of last slash to isolate file name from absolute path
+                            for i in range(0,len(data_name_temp[sum_hr_count])):
+                                if '/' in data_name_temp[sum_hr_count][i]:
+                                    str_search = i + 1
+                            data_name_temp_part = np.append(data_name_temp_part, data_name_temp[sum_hr_count][str_search::])
         
-                #             #Copy the needed files to a temp directory and note successes
-                #             output=os.system("cp "+data_name_temp[sum_hr_count]+".gz "+GRIB_PATH_TEMP)
-                #             sum_hr_count += 1
-                #         #END loop through accumulated precipitation
+                            #Copy the needed files to a temp directory and note successes
+                            output=os.system("cp "+data_name_temp[sum_hr_count]+".gz "+ str(self.grib_path_temp))
+                            sum_hr_count += 1
+                        #END loop through accumulated precipitation
                         
                 #         #Create the string for the time increment ahead
                 #         yrmonday_ahead = str(curdate_ahead.year)+'{:02d}'.format(int(curdate_ahead.month))+'{:02d}'.format(int(curdate_ahead.day))
