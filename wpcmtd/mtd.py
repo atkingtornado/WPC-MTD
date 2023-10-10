@@ -41,6 +41,8 @@ class WPCMTD:
     offset_fcsthr:  [float] = dataclasses.field(default_factory=list) 
     acc_int:        [int] = dataclasses.field(default_factory=list) 
     init_yrmondayhr:[] = dataclasses.field(default_factory=list) 
+    reg_mask_file:  [] = dataclasses.field(default_factory=list) 
+    ops_check:      float = 60*60*0.0   
 
 
     # Perform post-initalization checks and property updates based on initial values
@@ -61,7 +63,7 @@ class WPCMTD:
             if len(self.load_model) > 1:
                 raise ValueError('If mtd_mode = \'Retro\' then only one model specification at a time')
         elif self.mtd_mode == 'Both':
-            strip = [model[0:model.find('TLE')] for model in load_model]
+            strip = [model[0:model.find('TLE')] for model in self.load_model]
             for model in strip:
                 if model != self.load_model[0][0:self.load_model[0].find('TLE')]:
                     raise ValueError("'load_model' must be a single model or a TLE.")
@@ -115,11 +117,31 @@ class WPCMTD:
         hrs = hrs[hrs > 0]
         return hrs
      
-
     def setup_data(self, curr_date):
+        """
+        Pre-processing step to load the CAM model data and/or ST4 obs located 
+        at /export/hpc-lw-dtbdev5/wpc_cpgffh/gribs on hpc-lw-dtbdev5. Since most
+        CAM data is initialized at different intervals, this function does most 
+        of the grunt work to load the proper strings, variables, and create the proper folders.
+
+        When adding another ensemble member, take the following steps:
+        1) Ensure the new model string name matches a partial string name in 'model_default,'
+        if not then add a partial string to model_default
+        2) Add the frequency of initalizations in UTC to 'run_times' and 'acc_int'
+
+        Parameters
+        ----------
+        curdate : datetime.datetime object
+            Start date of model data to be loaded.
+        
+        Returns
+        -------
+            None
+        """
+
         #Create an array of partial strings to match the load data array specified by the user
-        model_default=['ST4','MRMS_','MRMS15min','MRMS2min','NAM','HIRESW','HRRR','NSSL-OP','NSSL-ARW','NSSL-NMB','HRAM','NEWSe5min','NEWSe60min', \
-            'HRRRe60min','FV3LAM','HRRRv415min']
+        model_default=['ST4','MRMS_','MRMS15min','MRMS2min','NAM','HIRESW','HRRR','NSSL-OP','NSSL-ARW',\
+            'NSSL-NMB','HRAM','NEWSe5min','NEWSe60min','HRRRe60min','FV3LAM','HRRRv415min']
 
         #Convert numbers to strings of proper length
         yrmondayhr=curr_date.strftime('%Y%m%d%H')
@@ -187,11 +209,12 @@ class WPCMTD:
 
             #Calculate lag from user specified string
             lag = float(self.load_data[model][self.load_data[model].index("lag")+3::])
-            
+
             #Check to see if lag makes sense given frequency of initialization, and calculate strings
             if lag%(24.0 / (float(len(run_times))-1)) == 0: 
                 #Determine the most recent model initialization offset
                 init_offset = curr_date.hour - run_times[np.argmax(run_times>curr_date.hour)-1]
+                print(init_offset)
                 #Combine the lag and offset to determine total offset
                 self.offset_fcsthr=np.append(self.offset_fcsthr,init_offset+lag)
                 #Determine yrmondayhr string from above information
@@ -237,8 +260,660 @@ class WPCMTD:
         
         self.lat=lat[y_beg:y_end,x_beg:x_end]
         self.lon=lon[y_beg:y_end,x_beg:x_end]
+
+
+    def pcp_combine(self, model, load_data_nc, data_name_grib, yrmonday_ahead, \
+        hrmin_ahead, fcst_hr, APCP_str_beg, APCP_str_end, fcst_hr_count):
+        """
+        Uses MET pcp_combine to sum the various model/analysis data tot he precipitation
+        intervals specified in pre_acc. This is the first MET step & involves converting
+        grib2 files to MET-friendly netcdf files.
+
+        Parameters
+        ----------
+        model : int
+            model counter (can include analysis)
+        load_data_nc : string 
+            netCDF string of data to be loaded
+        data_name_grib : string
+            grib name string of data to be loaded
+        yrmonday_ahead : string  
+            yymmdd at the forecast hour
+        hrmin_ahead : string
+            hhmm at the forecast hour
+        fcst_hr : int
+            number of forecast hour
+        APCP_str_beg : string
+            grib variable name to be loaded (beginning)
+        APCP_str_end : string
+            grib variable name to be loaded (end)
+
+        
+        Returns
+        -------
+            None
+        """
+
+        #Create variable name for pcp_combine
+        if self.load_qpe[0] in self.load_data:
+            pcp_combine_str = '00000000_000000'
+        else:
+            pcp_combine_str = self.init_yrmondayhr[model][:-2]+'_'+self.init_yrmondayhr[model][-2:]+'0000'
+
+        #Create variables names for pcp_combine
+        if 'ST4' in self.load_data:
+            pcp_combine_str_beg = '00000000_000000'
+        else:
+            pcp_combine_str_beg = self.init_yrmondayhr[model][:-2]+'_'+self.init_yrmondayhr[model][-2::]+'0000 '
+        pcp_combine_str_end = yrmonday_ahead+'_'+hrmin_ahead+'00 '
+
+        #Use MET pcp_combine to sum, except for 1 hr acc from NAM, which contains either 1, 2, 3 hr acc. precip
+        os.chdir(self.grib_path_temp)
+        if 'HIRESNAM' in self.load_data and self.pre_acc == 1:
+            if ((fcst_hr - 1) % 3) == 0:   #Every 3rd hour contains 1 hr acc. precip
+                output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+ \
+                    pcp_combine_str_end+APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -pcpdir '+ \
+                    str(self.grib_path_temp)+'/ -name "'+APCP_str_end+'"')
+            elif ((fcst_hr - 2) % 3) == 0: #2nd file contains 2 hr  acc. precip
+                output = os.system(str(self.met_path)+'/pcp_combine -subtract '+str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count]+' 020000 '+ \
+                    str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count-1]+' 010000 '+str(self.grib_path_temp)+'/'+load_data_nc+ \
+                    ' -name "'+APCP_str_end+'"')
+            elif ((fcst_hr - 3) % 3) == 0: #3rd file contains 3 hr  acc. precip
+                output = os.system(str(self.met_path)+'/pcp_combine -subtract '+str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count]+' 030000 '+ \
+                    str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count-1]+' 020000 '+str(self.grib_path_temp)+'/'+load_data_nc+ \
+                    ' -name "'+APCP_str_end+'"')
+        elif 'HIRESNAM' in self.load_data and self.pre_acc % 3 == 0: #NAM increments divisible by 3
+            output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' 030000 '+ \
+                pcp_combine_str_end+' '+APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+ load_data_nc+ \
+                ' -pcpdir '+str(self.grib_path_temp)+'/  -name "'+APCP_str_end+'"')
+        elif 'HIRESNAM' in self.load_data and self.pre_acc % 3 == 1: #Error if desired interval is not 1 or divisible by 3
+            raise ValueError('NAM pre_acc variable can only be 1 or divisible by 3')
+        elif 'NEWSe60min' in self.load_data:
+            if fcst_hr_load == 1: #If using fcst hour 1, no need to subtract data
+                output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
+                    APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
+            # elif fcst_hr_load > 1: #If not first hour, subtract current from previous hour
+            #     output = os.system(str(self.met_path)+"/pcp_combine -subtract "+GRIB_PATH_TEMP+"/"+data_name_grib[fcst_hr_count]+" "+last_fcst_hr_str+" "+ \
+            #         GRIB_PATH_TEMP+"/"+data_name_grib[fcst_hr_count-1]+" "+'{:02d}'.format(int(last_fcst_hr_str)-1)+" "+GRIB_PATH_TEMP+"/"+ \
+            #         load_data_nc+' -name "'+APCP_str_end+'"')
+        elif 'NEWSe5min' in self.load_data:
+            output = os.system(str(self.met_path)+'/pcp_combine -sum  '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
+                APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -field \'name="'+APCP_str_beg+'"; level="Surface";\''+ \
+                ' -name "'+APCP_str_end+'"')
+        elif 'MRMS_' in self.load_data:
+            call_str = [data_name_grib[i]+' \'name="MultiSensor_QPE_01H_Pass2" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/acc_int)),\
+                int((fcst_hr_count+1)*(self.pre_acc/acc_int)))]
+            output = os.system(str(self.met_path)+'/pcp_combine -add  '+' '.join(call_str)+' '+ \
+                str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'" -v 3')
+        elif 'MRMS15min_' in self.load_data:
+            call_str = [data_name_grib[i]+' \'name="RadarOnly_QPE_15M" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/acc_int)),\
+                int((fcst_hr_count+1)*(self.pre_acc/acc_int)))]
+            output = os.system(str(self.met_path)+'/pcp_combine -add  '+' '.join(call_str)+' '+ \
+                str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
+        elif 'HRRRe' in self.load_data:
+            if self.pre_acc != 1:
+                raise ValueError('HRRRe pre_acc variable can only be set to 1')
+            #HRRRe accumulates precip, so must subtract data from previous hour to obtain 1 hour acc. precip.
+            if fcst_hr == 1:
+                output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+ \
+                    pcp_combine_str_end+APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -pcpdir '+ \
+                    str(self.grib_path_temp)+'/ -name "'+APCP_str_end+'"')
+            else:
+                output = os.system(str(self.met_path)+'/pcp_combine -subtract '+str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count]+ \
+                    ' '+'{:02d}'.format(fcst_hr_count+1)+'0000 '+str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count-1]+' '+ \
+                    '{:02d}'.format(fcst_hr_count)+'0000 '+str(self.grib_path_temp)+'/'+load_data_nc+ ' -name "'+APCP_str_end+ \
+                    '"')
+        else:
+            output = os.system(str(self.met_path)+'/pcp_combine -sum  '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
+                APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
     
+
+    def apply_snow_mask(self, model, data_name_nc, data_name_grib, data_name_grib_prev, \
+        APCP_str_end, fcst_hr_count):
+
+        """
+        Applies a snow mask to the various model/analysis data.
+
+        Parameters
+        ----------
+        model : int
+            model counter (can include analysis)
+        data_name_nc : string 
+            netCDF string of data to be loaded
+        data_name_grib : string
+            grib name string of data to be loaded
+        data_name_grib_prev : string
+            grib name of previous data file to be loaded
+        fcst_hr : int
+            number of forecast hour
+        APCP_str_end : string
+            grib variable name to be loaded (end)
+        fcst_hr_count : int
+            counter through forecast hours
+
+        Returns
+        -------
+            None
+        """
+
+        if self.snow_mask == True:
+
+            #Determine masking string
+            if 'NSSL' in self.load_data[model]:
+                masking_str = 'WEASD'
+                masking_val = 'le0'
+            elif 'MRMS' in self.load_data[model]:
+                masking_str = 'PrecipFlag'
+                masking_val = 'ne3'
+            else:
+                masking_str = 'CSNOW'
+                masking_val = 'le0'
+
+            #Special conditions added because ST4 doesn't have masking option, so use model
+            if 'ST4' not in self.load_data[model] and 'ST4' not in self.load_qpe: #No ST4 being loaded now or at all
+                mask_file_in      = str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count]
+                mask_file_ou      = str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count]+'.nc'
+            elif 'ST4' not in self.load_data[model] and 'ST4' in self.load_qpe:   #No ST4 being loaded now, but will be loaded
+                mask_file_in      = str(self.grib_path_temp)+ '/'+data_name_grib[fcst_hr_count]
+                mask_file_ou      = str(self.grib_path_temp)+ '/'+data_name_grib[fcst_hr_count]+'.nc'
+                mask_file_in_prev = str(self.grib_path_temp)+'_2/'+data_name_grib[fcst_hr_count]
+
+                try:
+                    os.mkdir(str(self.grib_path_temp)+'_2/')
+                except FileExistsError:
+                    pass
+
+                os.system('cp '+mask_file_in+' '+mask_file_in_prev)
+            elif 'ST4' in self.load_data[model]:                             #ST4 being loaded now
+                mask_file_in      = str(self.grib_path_temp)+'_2/'+data_name_grib_prev[fcst_hr_count]
+                mask_file_ou      = str(self.grib_path_temp)+ '/'+data_name_grib_prev[fcst_hr_count]+'.nc'
+
+            #Regrid the data to common grid
+            os.system(str(self.met_path)+'/regrid_data_plane '+mask_file_in+' '+str(self.grib_path)+'/temp/ensmean_sample_NODELETE '+ \
+                mask_file_ou+' '+ '-field \'name="'+masking_str+'"; level="L0";\' -name "'+APCP_str_end+'"')
+
+            #If considering WEASD, must subtract current hour from previous hour (if it exists)
+            if masking_str == 'WEASD' and fcst_hr_count > 0:
+                mask_file_ou_prev = str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count-1]+'.nc'
+
+                output = os.system(str(self.met_path)+'/pcp_combine -subtract '+mask_file_ou+' \'name="WEASD_L0"; level="L0";\' '+ \
+                    mask_file_ou_prev+' \'name="WEASD_L0"; level="L0";\' '+mask_file_ou+'2')
+
+                #Mask out all non-snow data
+                os.system(str(self.met_path)+'/gen_vx_mask '+data_name_nc[fcst_hr_count]+' '+mask_file_ou+'2 '+data_name_nc[fcst_hr_count]+ \
+                    '_2 -type data -input_field \'name="'+APCP_str_end+ \
+                    '"; level="(*,*)";\' -mask_field \'name="'+APCP_str_end+'"; level="(*,*)";\' -thresh '+masking_val+' -value 0 -name '+APCP_str_end)
+            else:
+                output = os.system("cp "+mask_file_ou+' '+mask_file_ou+'2')
+                #Mask out all non-snow data
+                os.system(str(self.met_path)+'/gen_vx_mask '+data_name_nc[fcst_hr_count]+' '+mask_file_ou+'2 '+data_name_nc[fcst_hr_count]+ \
+                    '_2 -type data -input_field \'name="'+APCP_str_end+ \
+                    '"; level="(*,*)";\' -mask_field \'name="'+APCP_str_end+'"; level="(*,*)";\' -thresh '+masking_val+' -value 0 -name '+APCP_str_end)
+            #Replace old file with properly masked file
+            os.system("mv "+data_name_nc[fcst_hr_count]+"_2 "+data_name_nc[fcst_hr_count])
+
+
+    def apply_reg_mask(self, model, data_name_nc, data_name_nc_prev, APCP_str_end, fcst_hr_count):
+        """
+        Applies a regional mask to the data.
+
+        Parameters
+        ----------
+        model : int
+            model counter (can include analysis)
+        data_name_nc : string 
+            name of analysis file
+        data_name_nc_prev : string
+            name of model file
+        APCP_str_end : string
+            grib variable name to be loaded (end)
+        fcst_hr_count : int
+            counter through forecast hours
+
+        Returns
+        -------
+            None
+        """
+        if self.reg_mask_file != []:
+            if (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[model]):
+                if 'MRMS' in self.load_qpe[0] or 'ST4' in self.load_qpe[0]:
+                    #Mask the model
+                    os.system(str(self.met_path)+'/gen_vx_mask -type poly '+data_name_nc_prev[fcst_hr_count]+' '+self.reg_mask_file+' '\
+                        +data_name_nc_prev[fcst_hr_count]+'2 -complement -input_field \'name="'+APCP_str_end+'" ; level="(*,*)" ;\''\
+                        +' -value -9999 -name '+APCP_str_end)
+                    os.system('mv '+data_name_nc_prev[fcst_hr_count]+'2 '+data_name_nc_prev[fcst_hr_count])
+
+                    #Mask the analysis
+                    os.system(str(self.met_path)+'/gen_vx_mask -type poly '+data_name_nc[fcst_hr_count]+' '+self.reg_mask_file+' '\
+                        +data_name_nc[fcst_hr_count]+'2 -complement -input_field \'name="'+APCP_str_end+'" ; level="(*,*)" ;\''\
+                        +' -value -9999 -name '+APCP_str_end)
+                    os.system('mv '+data_name_nc[fcst_hr_count]+'2 '+data_name_nc[fcst_hr_count])
+
+    def loadDataMTDV90(self, MTDfile_new, model):
+        """
+        loadDataMTDV90 loads MTD object data. This includes gridded simple and cluster binary
+        data(simp_bin,clus_bin), which separately considers model/observation. Since
+        the object attribute property data (e.g. simp_prop/pair_prop) includes both model
+        and observation data (if obs exists), the same is true here. Hence, if both model
+        and observation are requested, this function will load both to include both in
+        object attribute files, but keeps model/obs separate in binary files.
+        
+        NOTE: The current 2d.txt MTD file includes simple-single and cluster-pairs, but they are
+        not well labeled. The first lines start with simple-single forecast objects (e.g. OBJECT_ID=F_1),
+        and show how they are merged into clusters (e.g. OBJECT_CAT=CF_1). Observations are then shown
+        in the same format. Thereafter, forecast data is shown again for OBJECT_ID and OBJECT_CAT.
+        At this point, the data is cluster-pairs for forecast data, with the cluster ID matching the
+        observation cluster ID. The forecast cluster ID will match the earlier forecast cluster ID
+        if that cluster did not involve multiple mergers, otherwise it is the centroid of the mergers.
+        This code will gather the first round of forecast/obs into 'simp_prop' and the second into
+        'pair_prop.'
+
+        Parameters
+        ----------
+            MTDfile_new : string
+                QPE string for the netcdf converted data (must point to model, not ST4. ST4 data is in model)
+            model : int
+                model counter (can include analysis)
+
+        Returns
+        -------
+            lat : [float]
+                grid of latitude from netcdf MODE output
+            lon : [float]
+                grid of longitude from netcdf MODE output
+            grid_mod : [float]
+                grid of raw forecast values
+            grid_obs : [float]
+                grid of raw observation values
+            simp_bin : [float]
+                grid of simple object ID information
+            clus_bin : [float]
+                grid of cluster ID information
+            simp_prop : [float]
+                simple centroid info of OBJECT_ID','OBJECT_CAT','TIME_INDEX','AREA','CENTROID_LAT',
+                'CENTROID_LON','AXIS_ANG','10TH INTEN PERC','50TH INTEN PERC','90TH INTEN PERC'
+            pair_prop : [float]
+                paired centroid info of OBJECT_ID','OBJECT_CAT','TIME_INDEX','AREA','CENTROID_LAT',
+                'CENTROID_LON','AXIS_ANG','10TH INTEN PERC','50TH INTEN PERC','90TH INTEN PERC'
+            data_success : int
+                file successfully loaded if equals zero
+        """
+
+        head_str_obj    = ['OBJECT_ID']
+        head_len_obj    = [11]
+        head_str_simp   = ['OBJECT_ID','OBJECT_CAT','TIME_INDEX','AREA','CENTROID_LAT','CENTROID_LON','AXIS_ANG']
+        head_len_simp   = [11,            12,           12,         6,       14,           14,            8]
+
+        simp_prop = np.ones((9,10000))*-999
+        pair_prop = np.ones((9,10000))*-999
+
+        print(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc')
+        print(str(self.grib_path_temp)+'/'+MTDfile_new+'_2d.txt')
+
+        #Check to see if file exists
+        if os.path.isfile(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc'):
+
+            #If file exists, try to open it up
+            try:
+
+                #####1) First read in the 2d text file to gather centroid intensity and location
+                #Open file and read through it
+                target = open(str(self.grib_path_temp)+'/'+MTDfile_new+'_2d.txt','r')
+                data = target.readlines()
+                target.close()
+
+                #Loop through each line and gather the needed info
+                f_count         = 0       #counter by line in file
+                f_simp_count    = 0       #counter by each simple attribute ('OBJECT_ID','TIME_INDEX',etc)
+                f_pair_count    = 0       #counter by each pair attribute ('OBJECT_ID','TIME_INDEX',etc)
+                line_prev       = []      #load the previous line
+                pair_load       = False   #reaching paired data line in data files
+
+                for line in data:
+                    
+                    #Find location of data in each file using header information
+                    if f_count == 0:
+                        line1 = line
+                        array_obj = [line1.find(head_str_obj[0]),line1.find(head_str_obj[0])+head_len_obj[0]]
+
+                    if f_count > 0:
+                        #Determine if paired objects exist (when objects go from obs back to fcst)
+                        if 'F' in line[line1.find(head_str_simp[0])+5:line1.find(head_str_simp[0])+8] and \
+                            'O' in line_prev[line1.find(head_str_simp[0])+5:line1.find(head_str_simp[0])+8]: #THIS INSTANCE ONLY HAPPENS ONCE!
+                            pair_load = 'TRUE'
+
+                        #Isolate simple cluster model/obs objects, gather stats comparing mod to obs in the form:
+                        #[object ID, object cat, time index, area of object, centroid lat, centroid lon, axis angle]
+
+                        for header in range(0,len(head_str_simp)):
+
+                            #Gather data grabbing arrays; special conditions for getting OBJECT_ID/OBJECT_CAT
+                            if header == 0 or header == 1:
+                                array_simp = [line1.find(head_str_simp[header])+4,line1.find(head_str_simp[header])+head_len_simp[header]]
+                            else:
+                                array_simp = [line1.find(head_str_simp[header]),line1.find(head_str_simp[header])+head_len_simp[header]]
+
+                            if pair_load: #Paired data saved to 'pair_prop'
+
+                                if ('F' in line[array_obj[0]:array_obj[-1]]): # and 'ST4' not in MTDfile_new:
+
+                                    #Special consideration for cluster data
+                                    if head_str_simp[header] == 'OBJECT_ID': #object ID
+                                        temp_d = line[array_simp[0]:array_simp[-1]]
+                                        temp_d = temp_d.replace('CF','')
+                                        pair_prop[header,f_pair_count] = float(temp_d)
+                                    elif head_str_simp[header] == 'OBJECT_CAT': #Cluster ID
+                                        if 'NA' in line[array_simp[0]:array_simp[-1]]:
+                                            pair_prop[header,f_pair_count] = np.NaN
+                                        else:
+                                            temp_d = line[array_simp[0]+4:array_simp[-1]]
+                                            temp_d = temp_d.replace('F','')
+                                            pair_prop[header,f_pair_count] = float(temp_d)
+                                    else:
+                                        pair_prop[header,f_pair_count] = float(line[array_simp[0]:array_simp[-1]])
+
+                                    if header == len(head_str_simp)-1:
+                                        f_pair_count += 1
+
+                                elif ('O' in line[array_obj[0]:array_obj[-1]]): # and 'ST4' in MTDfile_new:
+
+                                    #Make observation ID's negative to differentiate from model
+                                    if head_str_simp[header] == 'OBJECT_ID': #object ID
+                                        temp_d = line[array_simp[0]:array_simp[-1]]
+                                        temp_d = temp_d.replace('CO','')
+                                        pair_prop[header,f_pair_count] = -float(temp_d)
+                                    elif head_str_simp[header] == 'OBJECT_CAT': #Cluster ID
+                                        if 'NA' in line[array_simp[0]:array_simp[-1]]:
+                                            pair_prop[header,f_pair_count] = np.NaN
+                                        else:
+                                            temp_d = line[array_simp[0]+4:array_simp[-1]]
+                                            temp_d = temp_d.replace('O','')
+                                            pair_prop[header,f_pair_count] = -float(temp_d)
+                                    else:
+                                        pair_prop[header,f_pair_count] = float(line[array_simp[0]:array_simp[-1]])
+
+                                    if header == len(head_str_simp)-1:
+                                        f_pair_count += 1
+
+                            else: #non-paired data saved to 'simp_prop'
+
+                                if ('F' in line[array_obj[0]:array_obj[-1]]): # and 'ST4' not in MTDfile_new:
+
+                                    #Special consideration for cluster data
+                                    if head_str_simp[header] == 'OBJECT_ID': #object ID
+                                        temp_d = line[array_simp[0]:array_simp[-1]]
+                                        temp_d = temp_d.replace('F','')
+                                        simp_prop[header,f_simp_count] = float(temp_d)
+                                    elif head_str_simp[header] == 'OBJECT_CAT': #Cluster ID
+                                        if 'NA' in line[array_simp[0]:array_simp[-1]]:
+                                            simp_prop[header,f_simp_count] = np.NaN
+                                        else:
+                                            temp_d = line[array_simp[0]+4:array_simp[-1]]
+                                            temp_d = temp_d.replace('F','')
+                                            simp_prop[header,f_simp_count] = float(temp_d)
+                                    else:
+                                        simp_prop[header,f_simp_count] = float(line[array_simp[0]:array_simp[-1]])
+
+                                    if header == len(head_str_simp)-1:
+                                        f_simp_count += 1
+
+                                elif ('O' in line[array_obj[0]:array_obj[-1]]): # and 'ST4' in MTDfile_new:
+
+                                    #Make observation ID's negative to differentiate from model
+                                    if head_str_simp[header] == 'OBJECT_ID': #object ID
+                                        temp_d = line[array_simp[0]:array_simp[-1]]
+                                        temp_d = temp_d.replace('O','')
+                                        simp_prop[header,f_simp_count] = -float(temp_d)
+                                    elif head_str_simp[header] == 'OBJECT_CAT': #Cluster ID
+                                        if 'NA' in line[array_simp[0]:array_simp[-1]]:
+                                            simp_prop[header,f_simp_count] = np.NaN
+                                        else:
+                                            temp_d = line[array_simp[0]+4:array_simp[-1]]
+                                            temp_d = temp_d.replace('O','')
+                                            simp_prop[header,f_simp_count] = -float(temp_d)
+                                    else:
+                                        simp_prop[header,f_simp_count] = float(line[array_simp[0]:array_simp[-1]])
+
+                                    if header == len(head_str_simp)-1:
+                                        f_simp_count += 1
+
+                    line_prev = line
+                    f_count += 1
+
+                #Create obj. intensity since METv6.0 doesnt output it directly. First initialize additional row
+                simp_prop = np.concatenate((simp_prop,np.full((1,simp_prop.shape[1]),np.NaN)),axis=0)
+                pair_prop = np.concatenate((pair_prop,np.full((1,pair_prop.shape[1]),np.NaN)),axis=0)
+
+                #Remove unpopulated dimensions
+                simp_prop = simp_prop[:, np.nanmean(simp_prop[0:7,:] == -999, axis=0) == 0]
+                pair_prop = pair_prop[:, np.nanmean(pair_prop[0:7,:] == -999, axis=0) == 0]
+
+                #####2) Next read in the centroid shape data from the netcdf file
+                f = Dataset(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc', "a", format="NETCDF4")
+                lat=f.variables['lat'][:]
+                lon=f.variables['lon'][:]
+
+                #Try loading gridded obs to match data in 'simp_prop'
+                try:
+                    simp_bin_obs = f.variables['obs_object_id']
+                    simp_bin_obs = simp_bin_obs[:]
+                    simp_bin_obs[simp_bin_obs < 0] = 0
+
+                    #Cluster object data
+                    try: #May not always have clusters
+                        clus_bin_obs = f.variables['obs_cluster_id']
+                        clus_bin_obs = clus_bin_obs[:]
+                        clus_bin_obs[clus_bin_obs < 0] = 0
+                    except KeyError:
+                        clus_bin_obs  = np.zeros((simp_bin_obs.shape))
+
+                    #Rraw data
+                    grid_obs = f.variables['obs_raw'][:]/25.4
+                    grid_obs[grid_obs < 0] = np.nan
+                except:
+                     grid_obs = []
+
+                #There is always gridded forecast object data to load
+                simp_bin_mod = f.variables['fcst_object_id']
+                simp_bin_mod = simp_bin_mod[:]
+                simp_bin_mod[simp_bin_mod < 0] = 0
+
+                #Cluster object data
+                try: #May not always have clusters
+                    clus_bin_mod = f.variables['fcst_cluster_id']
+                    clus_bin_mod = clus_bin_mod[:]
+                    clus_bin_mod[clus_bin_mod < 0] = 0
+                except KeyError:
+                    clus_bin_mod = np.zeros((simp_bin_mod.shape))
+
+                #Raw data
+                grid_mod = f.variables['fcst_raw'][:]/25.4
+                grid_mod[grid_mod < 0] = np.nan
+
+                #Loop through each line of 'simp_prop' and determine obj. 10,50,90th prctile
+                #['OBJECT_ID','OBJECT_CAT','TIME_INDEX','AREA','CENTROID_LAT','CENTROID_LON','AXIS_ANG','INTENSITY_10','INTENSITY_50','INTENSITY_90']
+
+                for line_c in range(0,simp_prop.shape[1]):
+
+                    #Determine object ID
+                    obj_id = int(simp_prop[0][line_c])
+                    #Determine the forecast hour
+                    try:
+                        fcst_hr = int(simp_prop[2][line_c])
+                    except ValueError:
+                        fcst_hr = -999 #data missing
+
+                    if fcst_hr != -999: #data exists                                                                                                                                                                                                                                                                                                                                                                                                                                          
+                        if obj_id < 0: #Load obs data
+                            simp_prop[7,line_c] = np.round(np.nanpercentile(grid_obs[fcst_hr,simp_bin_obs[fcst_hr,:,:] == np.abs(obj_id)], 10),3)
+                            simp_prop[8,line_c] = np.round(np.nanpercentile(grid_obs[fcst_hr,simp_bin_obs[fcst_hr,:,:] == np.abs(obj_id)], 50),3)
+                            simp_prop[9,line_c] = np.round(np.percentile(grid_obs[fcst_hr,simp_bin_obs[fcst_hr,:,:] == np.abs(obj_id)], 90),3)
+                        else:          #Load model data
+                            simp_prop[7,line_c] = np.round(np.nanpercentile(grid_mod[fcst_hr,simp_bin_mod[fcst_hr,:,:] == np.abs(obj_id)], 10),3)
+                            simp_prop[8,line_c] = np.round(np.nanpercentile(grid_mod[fcst_hr,simp_bin_mod[fcst_hr,:,:] == np.abs(obj_id)], 50),3)
+                            simp_prop[9,line_c] = np.round(np.nanpercentile(grid_mod[fcst_hr,simp_bin_mod[fcst_hr,:,:] == np.abs(obj_id)], 90),3)
+                    else: #data missing
+                        if obj_id < 0: #Load obs data
+                            simp_prop[7,line_c] = np.NaN
+                            simp_prop[8,line_c] = np.NaN
+                            simp_prop[9,line_c] = np.NaN
+                        else:          #Load model data
+                            simp_prop[7,line_c] = np.NaN
+                            simp_prop[8,line_c] = np.NaN
+                            simp_prop[9,line_c] = np.NaN
+
+                #Loop through each line of 'pair_prop' and determine obj. 10,50,90th prctile
+                #['OBJECT_ID','TIME_INDEX','AREA','CENTROID_LAT','CENTROID_LON','AXIS_ANG','INTENSITY_10','INTENSITY_50','INTENSITY_90']
+                for line_c in range(0,pair_prop.shape[1]):
+
+                    #Determine object ID
+                    obj_id = int(pair_prop[0][line_c])
+                    #Determine the forecast hour
+                    try:
+                        fcst_hr = int(pair_prop[2][line_c])
+                    except ValueError:
+                        fcst_hr = -999 #data missing
+
+                    if fcst_hr != 999: #data exists                                                                                                                                                                                                                                                                                                                                                                                                                                           
+                        if obj_id < 0: #Load obs data
+                            try:
+                                pair_prop[7,line_c] = np.round(np.nanpercentile(grid_obs[fcst_hr,clus_bin_obs[fcst_hr,:,:] == np.abs(obj_id)], 10),3)
+                                pair_prop[8,line_c] = np.round(np.nanpercentile(grid_obs[fcst_hr,clus_bin_obs[fcst_hr,:,:] == np.abs(obj_id)], 50),3)
+                                pair_prop[9,line_c] = np.round(np.nanpercentile(grid_obs[fcst_hr,clus_bin_obs[fcst_hr,:,:] == np.abs(obj_id)], 90),3)
+                            except ValueError:
+                                pair_prop[7,line_c] = np.NaN
+                                pair_prop[8,line_c] = np.NaN
+                                pair_prop[9,line_c] = np.NaN
+
+                        else:          #Load model data
+                            try:
+                                pair_prop[7,line_c] = np.round(np.nanpercentile(grid_mod[fcst_hr,clus_bin_mod[fcst_hr,:,:] == np.abs(obj_id)], 10),3)
+                                pair_prop[8,line_c] = np.round(np.nanpercentile(grid_mod[fcst_hr,clus_bin_mod[fcst_hr,:,:] == np.abs(obj_id)], 50),3)
+                                pair_prop[9,line_c] = np.round(np.nanpercentile(grid_mod[fcst_hr,clus_bin_mod[fcst_hr,:,:] == np.abs(obj_id)], 90),3)
+                            except ValueError:
+                                pair_prop[7,line_c] = np.NaN
+                                pair_prop[8,line_c] = np.NaN
+                                pair_prop[9,line_c] = np.NaN
+
+                    else: #data missing
+                        if obj_id < 0: #Load obs data
+                            pair_prop[7,line_c] = np.NaN
+                            pair_prop[8,line_c] = np.NaN
+                            pair_prop[9,line_c] = np.NaN
+                        else:          #Load model data
+                            pair_prop[7,line_c] = np.NaN
+                            pair_prop[8,line_c] = np.NaN
+                            pair_prop[9,line_c] = np.NaN
+
+                #Output only mod or obs in 'bin' matrices, convert to boolean
+                if self.ismodel[model] == 0:
+                   simp_bin = simp_bin_obs
+                   clus_bin = clus_bin_obs
+                else:
+                   simp_bin = simp_bin_mod
+                   clus_bin = clus_bin_mod
+
+                #Remove gridded data not in the lat/lon grid specifications
+                data_subset=(lat >= self.latlon_dims[1]-3) & (lat < self.latlon_dims[3]+3) & (lon >= self.latlon_dims[0]-3) & (lon < self.latlon_dims[2]+3)*1
+                x_elements_beg=np.argmax(np.diff(data_subset,axis=1)==1, axis=1)
+                x_elements_end=np.argmax(np.diff(data_subset,axis=1)==-1, axis=1)
+                y_elements_beg=np.argmax(np.diff(data_subset,axis=0)==1, axis=0)
+                y_elements_end=np.argmax(np.diff(data_subset,axis=0)==-1, axis=0)
+                x_elements_beg=x_elements_beg[x_elements_beg > 0]
+                x_elements_end=x_elements_end[x_elements_end > 0]
+                y_elements_beg=y_elements_beg[y_elements_beg > 0]
+                y_elements_end=y_elements_end[y_elements_end > 0]
+                x_beg=np.min(x_elements_beg)
+                x_end=np.max(x_elements_end)
+                y_beg=np.min(y_elements_beg)
+                y_end=np.max(y_elements_end)
+                lat      = lat[y_beg:y_end,x_beg:x_end]
+                lon      = lon[y_beg:y_end,x_beg:x_end]
+                try:
+                    grid_obs = np.transpose(grid_obs[:,y_beg:y_end,x_beg:x_end],(1, 2, 0))
+                except TypeError:
+                    pass
+                grid_mod = np.transpose(grid_mod[:,y_beg:y_end,x_beg:x_end],(1, 2, 0))
+                simp_bin = np.transpose(simp_bin[:,y_beg:y_end,x_beg:x_end],(1, 2, 0))
+                clus_bin = np.transpose(clus_bin[:,y_beg:y_end,x_beg:x_end],(1, 2, 0))
+
+                #Remove cluster information not in the lat/lon grid specifications.
+                #First find IDs for simple clusters that are not in the domain. Since
+                #cluster clusters do not have lat/lon information, they are removed
+                #if any simple clusters are removed.
+                data_subset = (simp_prop[4,:] >= self.latlon_dims[1]) & (simp_prop[4,:] < self.latlon_dims[3]) & \
+                    (simp_prop[5,:] >= self.latlon_dims[0]) & (simp_prop[5,:] < self.latlon_dims[2])
+                simp_prop=simp_prop[:,data_subset]
+
+                data_subset = (pair_prop[4,:] >= self.latlon_dims[1]) & (pair_prop[4,:] < self.latlon_dims[3]) & \
+                    (pair_prop[5,:] >= self.latlon_dims[0]) & (pair_prop[5,:] < self.latlon_dims[2])
+                pair_prop=pair_prop[:,data_subset]
+
+                data_success = np.zeros((clus_bin.shape[2])) #Success
+                f.close()
+            except (RuntimeError, TypeError, NameError, ValueError, KeyError): #File exists but has no clusters
+
+                lat = f.variables['lat'][:]
+                lon = f.variables['lon'][:]
+
+                try:
+                    grid_obs = f.variables['obs_raw'][:]/25.4
+                except KeyError:
+                    grid_obs = []
+
+                grid_mod = f.variables['fcst_raw'][:]/25.4
+
+                simp_bin  = np.zeros((grid_mod.shape[0], grid_mod.shape[1], grid_mod.shape[2]),dtype=np.bool)
+                clus_bin  = np.zeros((grid_mod.shape[0], grid_mod.shape[1], grid_mod.shape[2]),dtype=np.bool)
+
+                simp_prop = np.nan
+                pair_prop = np.nan
+
+                #Model should exist and does
+                data_success = np.zeros((clus_bin.shape[2])) #Success
+                f.close()
+            #END try statement
+
+        else: #If statement, file does not exist
+
+            lat          = np.nan
+            lon          = np.nan
+            grid_mod     = np.nan
+            grid_obs     = np.nan
+
+            simp_bin     = np.nan
+            clus_bin     = np.nan
+
+            simp_prop    = np.nan
+            pair_prop    = np.nan
+
+            #Model should exist, but doesnt
+            data_success = 1 #Failure
+        #END if statement to check for file existance
+
+        return(lat, lon, grid_mod, grid_obs, simp_bin, clus_bin, simp_prop, pair_prop, data_success)
+
     def run_mtd(self):
+        """
+        MASTER MTD FUNCTION TO BE RUN IN OPERATIONAL OR RETROSPECTIVE MODE. HAS MULTIPLE MODEL/ENSEMBLE 
+        OPTIONS. CAN ONLY SPECIFY ONE THRESHOLD AT A TIME. WHEN RUN IN RETROSPECTIVE MODE, CAN ONLY
+        USE ONE MODEL/MEMBER AT A TIME. MJE. 201708-20190606,20210609.
+
+        Some specifics, 1) This code considers accumulation intervals with a resolution of one minute. 
+                        2) This code considers model initializations with a resolution of one hour.
+
+        Parameters
+        ----------
+            None
+
+        Returns
+        -------
+            None
+        """
+
+        #Record the current date
+        datetime_now = datetime.datetime.now()
+
         for curr_date in self.list_date:
             self.setup_data(curr_date)
 
@@ -288,28 +963,30 @@ class WPCMTD:
                 #NEWSe 60min files only store accumulated precip. Must load previous hour in instances of lag
                 if 'NEWSe60min' in self.load_data[model] and mod_lag > 0:
                     hrs_all = np.arange(self.hrs[0]-1,self.hrs[-1]+self.pre_acc,self.pre_acc)
-                    data_success       = np.concatenate((data_success,np.ones([1, len(self.load_data)])),axis = 0)
+                    data_success = np.concatenate((data_success,np.ones([1, len(self.load_data)])),axis = 0)
                 else: 
                     hrs_all = np.arange(self.hrs[0],self.hrs[-1]+self.pre_acc,self.pre_acc)
 
-                while 1: #In operational mode, wait for a while to make sure all data comes in
+                while 1: # In operational mode, wait for a while to make sure all data comes in
 
-                    #When snow_mask = True, there is no ST4 analysis mask, so ues the model CSNOW (will utitlize MRMS later)
+                    # When snow_mask = True, there is no ST4 analysis mask, so ues the model CSNOW (will utitlize MRMS later)
                     try:
-                        data_name_grib_prev  = data_name_grib
+                        data_name_grib_prev = data_name_grib
                     except NameError:
-                        data_name_grib_prev  = []
+                        data_name_grib_prev = []
                     
-                    fcst_hr_count = 0
-                    data_name_grib        = []
-                    data_name_nc          = []
-                    data_name_nc_prev   = []
-                    for fcst_hr in hrs_all: #Through the forecast hours
+                    fcst_hr_count     = 0
+                    data_name_grib    = []
+                    data_name_nc      = []
+                    data_name_nc_prev = []
+
+                    # Loop through the forecast hours
+                    for fcst_hr in hrs_all: 
         
-                        #Create proper string of last hour loaded to read in MTD file
+                        # Create proper string of last hour loaded to read in MTD file
                         last_fcst_hr_str = '{:02d}'.format(int(fcst_hr+self.offset_fcsthr[model]))
         
-                        #Sum through accumulated precipitation interval
+                        # Sum through accumulated precipitation interval
                         sum_hr_count = 0
                         data_name_temp = []
                         data_name_temp_part = []
@@ -340,137 +1017,206 @@ class WPCMTD:
                             sum_hr_count += 1
                         #END loop through accumulated precipitation
                         
-                #         #Create the string for the time increment ahead
-                #         yrmonday_ahead = str(curdate_ahead.year)+'{:02d}'.format(int(curdate_ahead.month))+'{:02d}'.format(int(curdate_ahead.day))
-                #         hrmin_ahead = '{:02d}'.format(int(curdate_ahead.hour))+'{:02d}'.format(int(curdate_ahead.minute))
+                        #Create the string for the time increment ahead
+                        yrmonday_ahead = str(curdate_ahead.year)+'{:02d}'.format(int(curdate_ahead.month))+'{:02d}'.format(int(curdate_ahead.day))
+                        hrmin_ahead = '{:02d}'.format(int(curdate_ahead.hour))+'{:02d}'.format(int(curdate_ahead.minute))
         
-                #         #Gunzip the file 
-                #         output = os.system("gunzip "+GRIB_PATH_TEMP+"/*.gz")
+                        #Gunzip the file 
+                        output = os.system("gunzip "+str(self.grib_path_temp)+"/*.gz")
                         
-                #         #Create archive of last hour grib file name within the summed increment
-                #         data_name_grib     = np.append(data_name_grib, data_name_temp_part)
+                        #Create archive of last hour grib file name within the summed increment
+                        data_name_grib = np.append(data_name_grib, data_name_temp_part)
 
-                #         ##########?) USE MET PCP_COMBINE TO CONVERT DATA TO NETCDF AND SUM PRECIPITATION WHEN APPLICABLE############
-                #         METLoadEnsemble.pcp_combine(MET_PATH,GRIB_PATH_TEMP,pre_acc,acc_int[model],model,load_data[model],load_data_nc[model],\
-                #             data_name_grib,load_qpe[0],init_yrmondayhr[model],yrmonday_ahead,hrmin_ahead,fcst_hr,APCP_str_beg,\
-                #             APCP_str_end,fcst_hr_count)
+                        ########## USE MET PCP_COMBINE TO CONVERT DATA TO NETCDF AND SUM PRECIPITATION WHEN APPLICABLE ############
+                        self.pcp_combine(model, load_data_nc[model], data_name_grib, yrmonday_ahead, \
+                            hrmin_ahead, fcst_hr, APCP_str_beg, APCP_str_end, fcst_hr_count)
 
-                #         #For NEWSe/WoF the domain changes so determine domain here
-                #         if mtd_mode == 'Operational':
-                #             if 'NEWSe' in load_model[model] and not 'latlon_dims_keep' in locals():
-                #                 try:
-                #                     f = Dataset(GRIB_PATH_TEMP+"/"+load_data_nc[model], "a", format="NETCDF4")
-                #                     latlon_sub = [[np.nanmin(np.array(f.variables['lon'][:]))-0.5,np.nanmin(np.array(f.variables['lat'][:]))-0.1,\
-                #                         np.nanmax(np.array(f.variables['lon'][:])),np.nanmax(np.array(f.variables['lat'][:]))+0.5]]
-                #                     domain_sub = ['ALL']
-                #                     f.close()
-                #                 except:
-                #                     pass
+                        #For NEWSe/WoF the domain changes so determine domain here
+                        if self.mtd_mode == 'Operational':
+                            if 'NEWSe' in self.load_model[model] and not 'latlon_dims_keep' in locals():
+                                try:
+                                    f = Dataset(str(self.grib_path_temp)+"/"+load_data_nc[model], "a", format="NETCDF4")
+                                    latlon_sub = [[np.nanmin(np.array(f.variables['lon'][:]))-0.5,np.nanmin(np.array(f.variables['lat'][:]))-0.1,\
+                                        np.nanmax(np.array(f.variables['lon'][:])),np.nanmax(np.array(f.variables['lat'][:]))+0.5]]
+                                    domain_sub = ['ALL']
+                                    f.close()
+                                except:
+                                    pass
                         
-                #         #Regrid to ST4 grid using regrid_data_plane
-                #         data_success[fcst_hr_count,model] = os.system(MET_PATH+"/regrid_data_plane "+GRIB_PATH_TEMP+"/"+ \
-                #             load_data_nc[model]+" "+GRIB_PATH+"/temp/ensmean_sample_NODELETE "+GRIB_PATH_TEMP+"/"+load_data_nc[model]+"2 "+ \
-                #             "-field 'name=\""+APCP_str_end+"\"; level=\""+APCP_str_end+ \
-                #             "\";' -name "+APCP_str_end)
+                        #Regrid to ST4 grid using regrid_data_plane
+                        data_success[fcst_hr_count,model] = os.system(str(self.met_path)+"/regrid_data_plane "+str(self.grib_path_temp)+"/"+ \
+                            load_data_nc[model]+" "+str(self.grib_path)+"/temp/ensmean_sample_NODELETE "+str(self.grib_path_temp)+"/"+load_data_nc[model]+"2 "+ \
+                            "-field 'name=\""+APCP_str_end+"\"; level=\""+APCP_str_end+ \
+                            "\";' -name "+APCP_str_end)
 
-                #         #Remove original netcdf files
-                #         output=os.system("rm -rf "+GRIB_PATH_TEMP+"/"+load_data_nc[model])
+                        #Remove original netcdf files
+                        output=os.system("rm -rf "+str(self.grib_path_temp)+"/"+load_data_nc[model])
         
-                #         #Rename netcdf file
-                #         data_name_nc = np.append(data_name_nc,GRIB_PATH_TEMP+"/"+load_data_nc[model][0:-3]+"_f"+fcst_hr_str+fcst_min_str+".nc")
-                #         output=os.system("mv "+GRIB_PATH_TEMP+"/"+load_data_nc[model]+"2 "+data_name_nc[fcst_hr_count])
+                        #Rename netcdf file
+                        data_name_nc = np.append(data_name_nc,str(self.grib_path_temp)+"/"+load_data_nc[model][0:-3]+"_f"+fcst_hr_str+fcst_min_str+".nc")
+                        output=os.system("mv "+str(self.grib_path_temp)+"/"+load_data_nc[model]+"2 "+data_name_nc[fcst_hr_count])
                             
-                #         #Construct an array of filenames in the previous model portion of the loop when in retro mode
-                #         if (mtd_mode == 'Retro') and (load_model[0] not in load_data[model]):
-                #             data_name_nc_prev = np.append(data_name_nc_prev,GRIB_PATH_TEMP+"/"+load_data[0]+"_f"+fcst_hr_str+fcst_min_str+".nc")
-                #         else:
-                #             data_name_nc_prev = np.append(data_name_nc_prev,'null')
-        
-                #         METLoadEnsemble.snow_mask(MET_PATH,GRIB_PATH,GRIB_PATH_TEMP,load_data[model],load_qpe[0],data_name_nc,data_name_grib,\
-                #             data_name_grib_prev,APCP_str_end,fcst_hr_count,snow_mask)
-                       
-                #         #Apply a regional mask if wanted
-                #         METLoadEnsemble.reg_mask(MET_PATH,mtd_mode,load_data[model],load_qpe[0],data_name_nc[fcst_hr_count],\
-                #             data_name_nc_prev[fcst_hr_count],APCP_str_end,reg_mask_file)
-     
-                #         fcst_hr_count += 1
-                #     #END through forecast hour
+                        #Construct an array of filenames in the previous model portion of the loop when in retro mode
+                        if (self.mtd_mode == 'Retro') and (self.load_model[0] not in load_data[model]):
+                            data_name_nc_prev = np.append(data_name_nc_prev,str(self.grib_path_temp)+"/"+load_data[0]+"_f"+fcst_hr_str+fcst_min_str+".nc")
+                        else:
+                            data_name_nc_prev = np.append(data_name_nc_prev,'null')
+                        
+                        #If snow_mask is True 1) interpolate to common domain (regrid_data plane), 2) mask out non-snow data mask
+                        self.apply_snow_mask(model, data_name_nc, data_name_grib, data_name_grib_prev, APCP_str_end, fcst_hr_count)
 
-                #     #Remove original grib files
-                #     for files in data_name_grib:
-                #         output = os.system('rm -rf '+GRIB_PATH_TEMP+'/'+files+'*')
+                        #Apply a regional mask if wanted
+                        self.apply_reg_mask(model, data_name_nc, data_name_nc_prev, APCP_str_end, fcst_hr_count)
+     
+                        fcst_hr_count += 1
+                    #END through forecast hour
+
+                    #Remove original grib files
+                    for files in data_name_grib:
+                        output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+files+'*')
                       
-                #     #Determine which hours are successfully loaded for each model
-                #     if (mtd_mode == 'Retro'):
-                #         hour_success = (data_success[:,[i for i in range(0,len(load_data)) if load_data[i] == load_qpe[0]][0]] + \
-                #             data_success[:,[i for i in range(0,len(load_data)) if load_data[i] == load_model[0]][0]]) == 0
-                #     elif (mtd_mode == 'Operational'): #No OBS, compare model to itself 
-                #         hour_success = data_success[:,model] == 0
+                    #Determine which hours are successfully loaded for each model
+                    if (self.mtd_mode == 'Retro'):
+                        hour_success = (data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_qpe[0]][0]] + \
+                            data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_model[0]][0]]) == 0
+                    elif (self.mtd_mode == 'Operational'): #No OBS, compare model to itself 
+                        hour_success = data_success[:,model] == 0
                     
-                #     #If not all of the data is in during operational mode, then pause for 2 minutes and try again. Repeat for one hour
-                #     if np.nanmean(data_success[:,model]) != 0 and mtd_mode == 'Operational':
-                #         if (datetime.datetime.now() - datetime_now).seconds > ops_check:
-                #             print('Missing Model Data; Plotting What We Have')
-                #             break
-                #         else:
-                #             print('There is missing Model Data; Pausing')
-                #             time.sleep(120)
-                #     elif np.nanmean(data_success[:,model]) == 0 and mtd_mode == 'Operational':
-                #         break
-                #     else:
-                #         break 
+                    #If not all of the data is in during operational mode, then pause for 2 minutes and try again. Repeat for one hour
+                    if np.nanmean(data_success[:,model]) != 0 and self.mtd_mode == 'Operational':
+                        if (datetime.datetime.now() - datetime_now).seconds > self.ops_check:
+                            print('Missing Model Data; Plotting What We Have')
+                            break
+                        else:
+                            print('There is missing Model Data; Pausing')
+                            time.sleep(120)
+                    elif np.nanmean(data_success[:,model]) == 0 and self.mtd_mode == 'Operational':
+                        break
+                    else:
+                        break 
 
-                # #END while check for all model data  
-                # print("HERE 2")
-                
-                # #Create variable name for default MTD file and renamed MTD file
-                # if ((mtd_mode == 'Retro' and load_qpe[0] in load_data[model]) or (mtd_mode == 'Operational')):
-                #     #Find first tracked forecast hour for mtd output label
-                #     hours_MTDlabel    = (((np.argmax(hour_success == 1)+1)*pre_acc)+int(load_data[model][-2:])+int(init_yrmondayhr[model][-2:]))
-                #     curdate_MTDlabel  = curdate + datetime.timedelta(hours = ((np.argmax(hour_success == 1)+1)*pre_acc))
-                #     yrmonday_MTDlabel = str(curdate_MTDlabel.year)+'{:02d}'.format(int(curdate_MTDlabel.month))+'{:02d}'.format(int(curdate_MTDlabel.day))
+                #END while check for all model data  
 
-                #     if hours_MTDlabel >= 24:
-                #         hours_MTDlabel = hours_MTDlabel - 24
-                #     mins_MTDlabel     = '{:02d}'.format(int(((hours_MTDlabel - int(hours_MTDlabel))*60)))
-                #     hours_MTDlabel    = '{:02d}'.format(int(hours_MTDlabel))
+                #Create variable name for default MTD file and renamed MTD file
+                if ((self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]) or (self.mtd_mode == 'Operational')):
+                    #Find first tracked forecast hour for mtd output label
+                    hours_MTDlabel    = (((np.argmax(hour_success == 1)+1)*self.pre_acc)+int(self.load_data[model][-2:])+int(self.init_yrmondayhr[model][-2:]))
+                    curdate_MTDlabel  = curr_date + datetime.timedelta(hours = ((np.argmax(hour_success == 1)+1)*self.pre_acc))
+                    yrmonday_MTDlabel = str(curdate_MTDlabel.year)+'{:02d}'.format(int(curdate_MTDlabel.month))+'{:02d}'.format(int(curdate_MTDlabel.day))
 
-                #     MTDfile_old[model] = 'mtd_'+yrmonday_MTDlabel+'_'+hours_MTDlabel+mins_MTDlabel+'00V'
-                # MTDfile_new[model] = 'mtd_'+init_yrmondayhr[model][:-2]+'_h'+init_yrmondayhr[model][-2:]+'_f'+last_fcst_hr_str+'_'+ \
-                #     load_data_nc[model][0:-3]+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)
+                    if hours_MTDlabel >= 24:
+                        hours_MTDlabel = hours_MTDlabel - 24
+                    mins_MTDlabel     = '{:02d}'.format(int(((hours_MTDlabel - int(hours_MTDlabel))*60)))
+                    hours_MTDlabel    = '{:02d}'.format(int(hours_MTDlabel))
 
-                # print("HERE 3")
-                # #Remove old MTD output files if they exist
-                # if os.path.isfile(GRIB_PATH_TEMP+'/'+MTDfile_new[model]): 
-                #     os.remove(GRIB_PATH_TEMP+'/'+MTDfile_new[model])    
+                    MTDfile_old[model] = 'mtd_'+yrmonday_MTDlabel+'_'+hours_MTDlabel+mins_MTDlabel+'00V'
+
+                MTDfile_new[model] = 'mtd_'+self.init_yrmondayhr[model][:-2]+'_h'+self.init_yrmondayhr[model][-2:]+'_f'+last_fcst_hr_str+'_'+ \
+                    load_data_nc[model][0:-3]+'_p'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)
+
+                #Remove old MTD output files if they exist
+                if os.path.isfile(str(self.grib_path_temp)+'/'+MTDfile_new[model]): 
+                    os.remove(str(self.grib_path_temp)+'/'+MTDfile_new[model])    
      
-                # #In retro mode, if there is no data in the model, then quit this attempt
-                # if mtd_mode == 'Retro' and load_data[model] != load_qpe[0] and np.nanmean(data_success[:,model]) == 1:
-                #     print('skipped')
-                #     break
+                #In retro mode, if there is no data in the model, then quit this attempt
+                if self.mtd_mode == 'Retro' and self.load_data[model] != self.load_qpe[0] and np.nanmean(data_success[:,model]) == 1:
+                    print('skipped')
+                    break
                 
-                # print("HERE 4")
-                # #Run MTD: 1) if QPE exists compare model to obs, otherwise 2) run mtd in single mode   
-                # output = []
-                # if mtd_mode == 'Retro' and load_qpe[0] in load_data[model]:
-                #     print(MET_PATH+'/mtd -fcst '+' '.join(data_name_nc_prev[hour_success])+ \
-                #         ' -obs '+' '.join(data_name_nc[hour_success])+' -config '+config_name+' -outdir '+GRIB_PATH_TEMP)
-                #     mtd_success = os.system(MET_PATH+'/mtd -fcst '+' '.join(data_name_nc_prev[hour_success])+ \
-                #         ' -obs '+' '.join(data_name_nc[hour_success])+' -config '+config_name+' -outdir '+GRIB_PATH_TEMP)
-                # elif mtd_mode == 'Operational' and load_qpe[0] not in load_data[model]: #No QPE, compare model to itself
-                #     mtd_success = os.system(MET_PATH+'/mtd -single '+' '.join(data_name_nc[hour_success])+' -config '+ \
-                #         config_name+' -outdir '+GRIB_PATH_TEMP)
+                #Run MTD: 1) if QPE exists compare model to obs, otherwise 2) run mtd in single mode   
+                output = []
+                if self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]:
+                    print(str(self.met_path)+'/mtd -fcst '+' '.join(data_name_nc_prev[hour_success])+ \
+                        ' -obs '+' '.join(data_name_nc[hour_success])+' -config '+str(config_name)+' -outdir '+str(self.grib_path_temp))
+                    mtd_success = os.system(str(self.met_path)+'/mtd -fcst '+' '.join(data_name_nc_prev[hour_success])+ \
+                        ' -obs '+' '.join(data_name_nc[hour_success])+' -config '+str(config_name)+' -outdir '+str(self.grib_path_temp))
+                elif self.mtd_mode == 'Operational' and self.load_qpe[0] not in self.load_data[model]: #No QPE, compare model to itself
+                    mtd_success = os.system(str(self.met_path)+'/mtd -single '+' '.join(data_name_nc[hour_success])+' -config '+ \
+                        str(config_name)+' -outdir '+str(self.grib_path_temp))
                 
-                # #Matrix to gather all netcdf file strings
-                # data_name_nc_all = np.append(data_name_nc_all,data_name_nc)
+                #Matrix to gather all netcdf file strings
+                data_name_nc_all = np.append(data_name_nc_all,data_name_nc)
 
-                # #Rename cluster file and 2d text file (QPE is handled later)
-                # if ((mtd_mode == 'Retro' and load_qpe[0] in load_data[model]) or (mtd_mode == 'Operational')):
-                #     output = os.system('mv '+GRIB_PATH_TEMP+'/'+MTDfile_old[model]+'_obj.nc '+ GRIB_PATH_TEMP+'/'+MTDfile_new[model]+ \
-                #         '_obj.nc ')
-                #     output = os.system('mv '+GRIB_PATH_TEMP+'/'+MTDfile_old[model]+'_2d.txt '+ GRIB_PATH_TEMP+'/'+MTDfile_new[model]+ \
-                #         '_2d.txt ')
-                #     output = os.system('rm -rf '+GRIB_PATH_TEMP+'/'+MTDfile_old[model]+'_3d_ss.txt')
-                #     output = os.system('rm -rf '+GRIB_PATH_TEMP+'/'+MTDfile_old[model]+'_3d_sc.txt')
-                #     output = os.system('rm -rf '+GRIB_PATH_TEMP+'/'+MTDfile_old[model]+'_3d_ps.txt')
-                #     output = os.system('rm -rf '+GRIB_PATH_TEMP+'/'+MTDfile_old[model]+'_3d_pc.txt')
+                #Rename cluster file and 2d text file (QPE is handled later)
+                if ((self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]) or (self.mtd_mode == 'Operational')):
+                    output = os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_obj.nc '+ str(self.grib_path_temp)+'/'+MTDfile_new[model]+ \
+                        '_obj.nc ')
+                    output = os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_2d.txt '+ str(self.grib_path_temp)+'/'+MTDfile_new[model]+ \
+                        '_2d.txt ')
+                    output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_ss.txt')
+                    output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_sc.txt')
+                    output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_ps.txt')
+                    output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_pc.txt')
+
+            #END through model
+
+        #Remove the netcdf files
+        for files in data_name_nc_all:
+            output=os.system("rm -rf "+files)
+     
+        ################################################################################
+        #########4 LOAD MTD DATA IN PROPER FORMAT TO BE SAVED###########################
+        ################################################################################
+
+        #Find model index location to load MTD data
+        mod_loc = [i for i in range(0,len(MTDfile_new)) if self.load_model[0] in MTDfile_new[i]][0]
+        
+        #Function to read in MTD data
+        for model in range(len(self.load_data)): #Through the 1 model and observation
+            
+            #Retro mode has one model/one obs only, but the obs are in the model data, so load model but collect obs for retro
+            if self.mtd_mode == 'Retro':    
+                (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
+                    self.loadDataMTDV90(MTDfile_new[1], model)
+            else:
+                (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
+                    self.loadDataMTDV90(MTDfile_new[model], model)
+            #print(pair_prop_k)
+            #print(simp_prop_k)
+
+            #Determine length of hours, place into matrices properly time-matched
+            if self.mtd_mode == 'Retro':
+                hour_success = (data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_qpe[0]][0]] + \
+                    data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_model[0]][0]]) == 0
+            elif self.mtd_mode == 'Operational': #No OBS, compare model to itself 
+                hour_success = data_success[:,model] == 0
+
+            hours_true = np.where(hour_success == 1)[0]
+            
+            if not np.isnan(np.nanmean(simp_prop_k)):                
+                #Add data to total matrices
+                simp_prop[model]       = simp_prop_k
+                pair_prop[model]       = pair_prop_k
+            else:
+                simp_prop[model]       = np.full((10,1),np.NaN)
+                pair_prop[model]       = np.full((10,1),np.NaN)
+
+            if np.mean(np.isnan(simp_bin_p)) != 1:
+                simp_bin[:,:,hours_true,model] = simp_bin_p
+            if np.mean(np.isnan(clus_bin_p)) != 1:
+                clus_bin[:,:,hours_true,model] = clus_bin_p
+          
+            del simp_bin_p
+                  
+            #Create binomial grid where = 1 if model and obs exist
+            if np.mean(np.isnan(obs_p)) == 1 or  np.mean(np.isnan(fcst_p)) == 1 or \
+                np.isnan(np.mean(np.isnan(obs_p))) == 1 or  np.isnan(np.mean(np.isnan(fcst_p))) == 1:
+                data_exist = np.zeros((self.lat.shape))
+            else:
+                data_exist = (np.isnan(obs_p[:,:,0].data)*1 + np.isnan(fcst_p[:,:,0].data)*1) == 0
+            
+            # #If requested, plot hourly paired mod/obs objects to manually check results by-eye
+            # if plot_allhours == 'TRUE' and model > 0:
+            #     #If the domain is subset, determine proper coordinates for plotting
+            #     latmin = np.nanmin(lat_t[fcst_p[:,:,0].data>0])
+            #     latmax = np.nanmax(lat_t[fcst_p[:,:,0].data>0])
+            #     lonmin = np.nanmin(lon_t[fcst_p[:,:,0].data>0])
+            #     lonmax = np.nanmax(lon_t[fcst_p[:,:,0].data>0])
+            #     #METPlotEnsemble.MTDPlotRetroJustPrecip(GRIB_PATH_DES,FIG_PATH,[lonmin,latmin,lonmax,latmax],pre_acc,hrs_all,thres,curdate, \
+            #     #    data_success,load_data_nc,self.lat,self.lon,fcst_p,obs_p)
+            #     METPlotEnsemble.MTDPlotRetro(GRIB_PATH_DES,FIG_PATH,[lonmin,latmin,lonmax,latmax],pre_acc,hrs_all,thres,curdate, \
+            #         data_success,load_data_nc,self.lat,self.lon,fcst_p,obs_p,clus_bin,pair_prop)
+            
+            del clus_bin_p
+            del fcst_p
+            del obs_p
