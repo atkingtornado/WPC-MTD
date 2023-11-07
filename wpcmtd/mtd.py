@@ -3,8 +3,11 @@ import dataclasses
 import pathlib
 import datetime
 import numpy as np
+import time
 from netCDF4 import Dataset
 from .utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig, load_data_str
+from .plot import mtd_plot_retro, mtd_plot_all_fcst, mtd_plot_tle_fcst
+
 
 @dataclasses.dataclass
 class WPCMTD:
@@ -18,23 +21,29 @@ class WPCMTD:
     fig_path:       pathlib.PosixPath # Location for figure generation
     grib_path:      pathlib.PosixPath # Location of model GRIB files
     config_path:    pathlib.PosixPath # Location of MET config files
-    latlon_dims:    [float] # Latitude/longitude dimensions for plotting [WLON,SLAT,ELON,NLAT]
+    track_path:     pathlib.PosixPath # Location to store NPZ track files
+    latlon_dims:    [float]           # Latitude/longitude dimensions for plotting [WLON,SLAT,ELON,NLAT]
     beg_date:       datetime.datetime # Beginning time of retrospective runs
     end_date:       datetime.datetime # Ending time of retrospective runs
-    init_inc:       int # Initialization increment (hours; e.g. total hours between model init. cycles)
-    mtd_mode:       str # 'Operational', 'Retro', or 'Both'
-    load_model:     [str] # list of models to load, ex.  ['HRRRv4_TLE_lag12'   ,'HRRRv4_TLE_lag06'  ,'HRRRv4_TLE_lag00']
-    load_qpe:       [str] # 'ST4','MRMS',or 'NONE' (NOTE: NEWS-E and HRRRe DOES NOT WORK FOR ANYTHING OTHER THAN LAG = 00)
-    snow_mask:      bool  # Keep only regions that are snow (True) or no masking (False)
-    pre_acc:        float # Precipitation accumulation total
-    season_sub:     [int] # Seasonally subset retro data to match oper data (array of months to keep)
-    grib_path_des:  str   # An appended string label for the temporary directory name
-    thresh:         float # Precip. threshold for defining objects (inches) (specifiy single value)
-    end_fcst_hrs:   float # Last forecast hour to be considered
-    conv_radius:    int   # Radius of the smoothing (grid squares)
-    min_volume:     int   # Area threshold (grid squares) to keep an object
-    ti_thresh:      float # Total interest threshold for determining matches
+    init_inc:       int               # Initialization increment (hours; e.g. total hours between model init. cycles)
+    mtd_mode:       str               # 'Operational', 'Retro', or 'Both'
+    load_model:     [str]             # list of models to load, ex.  ['HRRRv4_TLE_lag12'   ,'HRRRv4_TLE_lag06'  ,'HRRRv4_TLE_lag00']
+    load_qpe:       [str]             # 'ST4','MRMS',or 'NONE' (NOTE: NEWS-E and HRRRe DOES NOT WORK FOR ANYTHING OTHER THAN LAG = 00)
+    snow_mask:      bool              # Keep only regions that are snow (True) or no masking (False)
+    pre_acc:        float             # Precipitation accumulation total
+    season_sub:     [int]             # Seasonally subset retro data to match oper data (array of months to keep)
+    grib_path_des:  str               # An appended string label for the temporary directory name
+    thresh:         float             # Precip. threshold for defining objects (inches) (specifiy single value)
+    end_fcst_hrs:   float             # Last forecast hour to be considered
+    conv_radius:    int               # Radius of the smoothing (grid squares)
+    min_volume:     int               # Area threshold (grid squares) to keep an object
+    ti_thresh:      float             # Total interest threshold for determining matches
+    plot_allhours:  bool              # Plot every track figure hour-by-hour (good for comparing tracker to eye)
+    sigma:          int               # Gaussian Filter for smoothing ensemble probabilities in some plots (grid points)
+    domain_sub:     [str]             # Sub-domain names for plotting
+    latlon_sub:     [[int]]           # Sub-domain lat/lon sizes for plotting
 
+    transfer_to_prod: bool = False
     grib_path_temp: pathlib.PosixPath = None
     lat:            float = None
     lon:            float = None
@@ -59,7 +68,7 @@ class WPCMTD:
             if self.load_qpe[0] != 'None':
                 raise ValueError('If mtd_mode = \'Operational\' then load_qpe = \'None\'')
         elif self.mtd_mode == 'Retro':
-            self.fig_path = self.fig_path+'RETRO/'
+            self.fig_path = str(self.fig_path)+'RETRO/'
             if len(self.load_model) > 1:
                 raise ValueError('If mtd_mode = \'Retro\' then only one model specification at a time')
         elif self.mtd_mode == 'Both':
@@ -131,7 +140,7 @@ class WPCMTD:
 
         Parameters
         ----------
-        curdate : datetime.datetime object
+        curr_date : datetime.datetime object
             Start date of model data to be loaded.
         
         Returns
@@ -214,7 +223,6 @@ class WPCMTD:
             if lag%(24.0 / (float(len(run_times))-1)) == 0: 
                 #Determine the most recent model initialization offset
                 init_offset = curr_date.hour - run_times[np.argmax(run_times>curr_date.hour)-1]
-                print(init_offset)
                 #Combine the lag and offset to determine total offset
                 self.offset_fcsthr=np.append(self.offset_fcsthr,init_offset+lag)
                 #Determine yrmondayhr string from above information
@@ -366,7 +374,8 @@ class WPCMTD:
         else:
             output = os.system(str(self.met_path)+'/pcp_combine -sum  '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
                 APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
-    
+        
+        time.sleep(2)
 
     def apply_snow_mask(self, model, data_name_nc, data_name_grib, data_name_grib_prev, \
         APCP_str_end, fcst_hr_count):
@@ -489,9 +498,9 @@ class WPCMTD:
                         +' -value -9999 -name '+APCP_str_end)
                     os.system('mv '+data_name_nc[fcst_hr_count]+'2 '+data_name_nc[fcst_hr_count])
 
-    def loadDataMTDV90(self, MTDfile_new, model):
+    def load_data_MTDV90(self, MTDfile_new, model):
         """
-        loadDataMTDV90 loads MTD object data. This includes gridded simple and cluster binary
+        load_data_MTDV90 loads MTD object data. This includes gridded simple and cluster binary
         data(simp_bin,clus_bin), which separately considers model/observation. Since
         the object attribute property data (e.g. simp_prop/pair_prop) includes both model
         and observation data (if obs exists), the same is true here. Hence, if both model
@@ -546,9 +555,6 @@ class WPCMTD:
 
         simp_prop = np.ones((9,10000))*-999
         pair_prop = np.ones((9,10000))*-999
-
-        print(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc')
-        print(str(self.grib_path_temp)+'/'+MTDfile_new+'_2d.txt')
 
         #Check to see if file exists
         if os.path.isfile(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc'):
@@ -853,6 +859,7 @@ class WPCMTD:
                 f.close()
             except (RuntimeError, TypeError, NameError, ValueError, KeyError): #File exists but has no clusters
 
+                print("*************************** ERROR ******************************")
                 lat = f.variables['lat'][:]
                 lon = f.variables['lon'][:]
 
@@ -893,6 +900,150 @@ class WPCMTD:
 
         return(lat, lon, grid_mod, grid_obs, simp_bin, clus_bin, simp_prop, pair_prop, data_success)
 
+
+    def port_data_FILES(self, curr_date,start_hrs,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem):
+        """
+        This function creates NPZ track files from one retro model/analysis run.
+
+        Parameters
+        ----------
+        curr_date : datetime.datetime object
+            Start date of data to be loaded.
+        start_hrs : float
+            number start forecast hour
+        hour_success : [int]
+            binomial array of successful forecast hours loaded
+        MTDfile_new : [str]
+            string array of MTD files
+        simp_prop : [?]
+            simple centroid info
+        pair_prop : [?]
+            pair centroid info
+        data_exist : [?]
+            binomial 2-D spatial array of successful data loaded
+        mem : [str]
+            string arry of ensemble member info
+        Returns
+        -------
+            None
+        """
+        
+        #Check for HRRRV4 TLE only
+        HRRR_check  = ['HRRR' in i for i in self.load_data]*1
+
+        #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
+        if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
+            for model in range(len(self.load_data)):
+                os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
+
+        if self.mtd_mode == 'Retro':
+
+            #Save the simple and paired model/obs track files specifying simp/pair, start/end time, hour acc. interval, and threshold
+            if (np.sum(hour_success) > 0) and (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[1]):
+                np.savez(str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(start_hrs))+\
+                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),simp_prop_k = simp_prop[0],data_exist = data_exist)
+                np.savez(str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(start_hrs))+\
+                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),pair_prop_k = pair_prop[0],data_exist = data_exist)
+
+                #Gunzip the files
+                output = os.system('gzip '+str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(start_hrs))+\
+                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
+                output = os.system('gzip '+str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(start_hrs))+\
+                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
+
+    def port_data_FIGS(self, curdate):
+        """
+        This function ports figures to the proper servers/location at WPC
+
+        Parameters
+        ----------
+        curr_date : datetime.datetime object
+            datetime element for current date
+
+        Returns
+        -------
+            None
+        """
+        if self.mtd_mode == 'Operational':
+            if self.snow_mask == False:
+                if 'HRRRv415min' in ''.join(self.load_data):
+
+                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/HRRRSubHr/images/'+ \
+                        self.domain_sub[1:]+'/')
+                    os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/'+self.domain_sub[1:]+'/'+ \
+                        ' --recursive --exclude "*" --include "*'+str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.*"')
+
+                    #Clear files older than two days from wpcrzdm to save memory
+                    curdate_old  = curdate - datetime.timedelta(days=2)
+                    yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
+                    os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/HRRRSubHr/images/"+self.domain_sub[1:]+"/*"+str(self.grib_path_des)+"*"+ \
+                        yrmonday_old+"*.*'")
+                    os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/'+self.domain_sub[1:]+'/ --recursive --exclude "*" --include "*'+\
+                        yrmonday_old+'*.*"')
+
+                else:
+
+                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd/images/')
+                    os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+ \
+                        str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.*"')
+
+                    #Clear files older than two days from wpcrzdm to save memory
+                    curdate_old  = curdate - datetime.timedelta(days=2)
+                    yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
+                    os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/verification/mtd/images/*"+str(self.grib_path_des)+"*"+yrmonday_old+"*.*'")
+                    os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+\
+                        yrmonday_old+'*.*"')
+
+            elif snow_mask == True:
+
+                os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+domain_sub[1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/')
+                os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+ \
+                    str(self.grib_path_des)+'*'+domain_sub[1:]+'*.*"')
+
+                #Clear files older than 5 days from wpcrzdm to save memory
+                curdate_old  = curdate - datetime.timedelta(days=5)
+                yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
+                os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/snowbands/images/*"+str(self.grib_path_des)+"*"+yrmonday_old+"*.*'")
+                os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+\
+                    yrmonday_old+'*.*"')
+
+    def sweep(self,curr_date,MTDfile_new): 
+        """
+        This function deleted all unneeded data & figs after mtd code has run
+
+        Parameters
+        ----------
+        curr_date : datetime.datetime object
+            datetime element for current date
+        MTDfile_new : [str]
+            list of strings of MTD *.nc and *.txt files
+
+        Returns
+        -------
+            None
+        """
+
+        #Delete the source files to save hard drive space
+        output=os.system('rm -rf '+str(self.grib_path_temp)+'*')
+        print('rm -rf '+str(self.grib_path_temp)+'*')
+        output=os.system('rm -rf '+str(self.grib_path_temp)+'_2')
+        print('rm -rf '+str(self.grib_path_temp)+'_2')
+
+        #Fix an issue by deleting a folder created in METLoadEnsemble.setupData if no plotting is requested
+        if self.plot_allhours == False and self.mtd_mode == 'Retro':
+            os.system("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(datetime_curdate.year)+'{:02d}'.format(datetime_curdate.month)+ \
+                '{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour))
+
+        #Delete MTD output in specific situations
+        if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
+            for model in range(len(MTDfile_new)):
+                print('rm -rf '+str(self.track_path)+MTDfile_new[model][0:21]+'*')
+                os.system('rm -rf '+str(self.track_path)+MTDfile_new[model][0:21]+'*')
+
     def run_mtd(self):
         """
         MASTER MTD FUNCTION TO BE RUN IN OPERATIONAL OR RETROSPECTIVE MODE. HAS MULTIPLE MODEL/ENSEMBLE 
@@ -913,6 +1064,7 @@ class WPCMTD:
 
         #Record the current date
         datetime_now = datetime.datetime.now()
+        start_hrs = 0.0
 
         for curr_date in self.list_date:
             self.setup_data(curr_date)
@@ -930,7 +1082,7 @@ class WPCMTD:
             data_name_nc_all = []
 
             for model in range(len(self.load_data)): #Through the 1 model and observation
-            
+
                 #Create APCP string (e.g. pre_acc = 1, APCP_str_beg = 'A010000'; pre_acc = 0.25, APCP_str_beg = 'A001500')
                 time_inc_beg = datetime.timedelta(hours=self.acc_int[model])
                 time_inc_end = datetime.timedelta(hours=self.pre_acc)
@@ -1015,6 +1167,7 @@ class WPCMTD:
                             #Copy the needed files to a temp directory and note successes
                             output=os.system("cp "+data_name_temp[sum_hr_count]+".gz "+ str(self.grib_path_temp))
                             sum_hr_count += 1
+
                         #END loop through accumulated precipitation
                         
                         #Create the string for the time increment ahead
@@ -1036,9 +1189,9 @@ class WPCMTD:
                             if 'NEWSe' in self.load_model[model] and not 'latlon_dims_keep' in locals():
                                 try:
                                     f = Dataset(str(self.grib_path_temp)+"/"+load_data_nc[model], "a", format="NETCDF4")
-                                    latlon_sub = [[np.nanmin(np.array(f.variables['lon'][:]))-0.5,np.nanmin(np.array(f.variables['lat'][:]))-0.1,\
+                                    self.latlon_sub = [[np.nanmin(np.array(f.variables['lon'][:]))-0.5,np.nanmin(np.array(f.variables['lat'][:]))-0.1,\
                                         np.nanmax(np.array(f.variables['lon'][:])),np.nanmax(np.array(f.variables['lat'][:]))+0.5]]
-                                    domain_sub = ['ALL']
+                                    self.domain_sub = ['ALL']
                                     f.close()
                                 except:
                                     pass
@@ -1126,8 +1279,6 @@ class WPCMTD:
                 #Run MTD: 1) if QPE exists compare model to obs, otherwise 2) run mtd in single mode   
                 output = []
                 if self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]:
-                    print(str(self.met_path)+'/mtd -fcst '+' '.join(data_name_nc_prev[hour_success])+ \
-                        ' -obs '+' '.join(data_name_nc[hour_success])+' -config '+str(config_name)+' -outdir '+str(self.grib_path_temp))
                     mtd_success = os.system(str(self.met_path)+'/mtd -fcst '+' '.join(data_name_nc_prev[hour_success])+ \
                         ' -obs '+' '.join(data_name_nc[hour_success])+' -config '+str(config_name)+' -outdir '+str(self.grib_path_temp))
                 elif self.mtd_mode == 'Operational' and self.load_qpe[0] not in self.load_data[model]: #No QPE, compare model to itself
@@ -1139,6 +1290,7 @@ class WPCMTD:
 
                 #Rename cluster file and 2d text file (QPE is handled later)
                 if ((self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]) or (self.mtd_mode == 'Operational')):
+                   
                     output = os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_obj.nc '+ str(self.grib_path_temp)+'/'+MTDfile_new[model]+ \
                         '_obj.nc ')
                     output = os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_2d.txt '+ str(self.grib_path_temp)+'/'+MTDfile_new[model]+ \
@@ -1148,75 +1300,109 @@ class WPCMTD:
                     output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_ps.txt')
                     output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_pc.txt')
 
-            #END through model
+            # END through model
 
-        #Remove the netcdf files
-        for files in data_name_nc_all:
-            output=os.system("rm -rf "+files)
+            #Remove the netcdf files
+            for files in data_name_nc_all:
+                output=os.system("rm -rf "+files)
      
-        ################################################################################
-        #########4 LOAD MTD DATA IN PROPER FORMAT TO BE SAVED###########################
-        ################################################################################
+            # ################################################################################
+            # #########4 LOAD MTD DATA IN PROPER FORMAT TO BE SAVED###########################
+            # ################################################################################
 
-        #Find model index location to load MTD data
-        mod_loc = [i for i in range(0,len(MTDfile_new)) if self.load_model[0] in MTDfile_new[i]][0]
-        
-        #Function to read in MTD data
-        for model in range(len(self.load_data)): #Through the 1 model and observation
+            #Find model index location to load MTD data
+            mod_loc = [i for i in range(0,len(MTDfile_new)) if self.load_model[0] in MTDfile_new[i]][0]
             
-            #Retro mode has one model/one obs only, but the obs are in the model data, so load model but collect obs for retro
-            if self.mtd_mode == 'Retro':    
-                (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                    self.loadDataMTDV90(MTDfile_new[1], model)
-            else:
-                (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                    self.loadDataMTDV90(MTDfile_new[model], model)
-            #print(pair_prop_k)
-            #print(simp_prop_k)
+            #Function to read in MTD data
+            for model in range(len(self.load_data)): #Through the 1 model and observation
+                
+                #Retro mode has one model/one obs only, but the obs are in the model data, so load model but collect obs for retro
+                if self.mtd_mode == 'Retro':    
+                    (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
+                        self.load_data_MTDV90(MTDfile_new[1], model)
+                else:
+                    (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
+                        self.load_data_MTDV90(MTDfile_new[model], model)
 
-            #Determine length of hours, place into matrices properly time-matched
-            if self.mtd_mode == 'Retro':
-                hour_success = (data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_qpe[0]][0]] + \
-                    data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_model[0]][0]]) == 0
-            elif self.mtd_mode == 'Operational': #No OBS, compare model to itself 
-                hour_success = data_success[:,model] == 0
+                #Determine length of hours, place into matrices properly time-matched
+                if self.mtd_mode == 'Retro':
+                    hour_success = (data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_qpe[0]][0]] + \
+                        data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_model[0]][0]]) == 0
+                elif self.mtd_mode == 'Operational': #No OBS, compare model to itself 
+                    hour_success = data_success[:,model] == 0
 
-            hours_true = np.where(hour_success == 1)[0]
-            
-            if not np.isnan(np.nanmean(simp_prop_k)):                
-                #Add data to total matrices
-                simp_prop[model]       = simp_prop_k
-                pair_prop[model]       = pair_prop_k
-            else:
-                simp_prop[model]       = np.full((10,1),np.NaN)
-                pair_prop[model]       = np.full((10,1),np.NaN)
+                hours_true = np.where(hour_success == 1)[0]
+                
+                if not np.isnan(np.nanmean(simp_prop_k)):                
+                    #Add data to total matrices
+                    simp_prop[model]       = simp_prop_k
+                    pair_prop[model]       = pair_prop_k
+                else:
+                    simp_prop[model]       = np.full((10,1),np.NaN)
+                    pair_prop[model]       = np.full((10,1),np.NaN)
 
-            if np.mean(np.isnan(simp_bin_p)) != 1:
-                simp_bin[:,:,hours_true,model] = simp_bin_p
-            if np.mean(np.isnan(clus_bin_p)) != 1:
-                clus_bin[:,:,hours_true,model] = clus_bin_p
-          
-            del simp_bin_p
-                  
-            #Create binomial grid where = 1 if model and obs exist
-            if np.mean(np.isnan(obs_p)) == 1 or  np.mean(np.isnan(fcst_p)) == 1 or \
-                np.isnan(np.mean(np.isnan(obs_p))) == 1 or  np.isnan(np.mean(np.isnan(fcst_p))) == 1:
-                data_exist = np.zeros((self.lat.shape))
-            else:
-                data_exist = (np.isnan(obs_p[:,:,0].data)*1 + np.isnan(fcst_p[:,:,0].data)*1) == 0
+                if np.mean(np.isnan(simp_bin_p)) != 1:
+                    simp_bin[:,:,hours_true,model] = simp_bin_p
+                if np.mean(np.isnan(clus_bin_p)) != 1:
+                    clus_bin[:,:,hours_true,model] = clus_bin_p
+              
+                del simp_bin_p
+                      
+                #Create binomial grid where = 1 if model and obs exist
+                if np.mean(np.isnan(obs_p)) == 1 or  np.mean(np.isnan(fcst_p)) == 1 or \
+                    np.isnan(np.mean(np.isnan(obs_p))) == 1 or  np.isnan(np.mean(np.isnan(fcst_p))) == 1:
+                    data_exist = np.zeros((self.lat.shape))
+                else:
+                    data_exist = (np.isnan(obs_p[:,:,0].data)*1 + np.isnan(fcst_p[:,:,0].data)*1) == 0
+                
+                #If requested, plot hourly paired mod/obs objects to manually check results by-eye
+                if self.plot_allhours == True and model > 0:
+                    #If the domain is subset, determine proper coordinates for plotting
+                    latmin = np.nanmin(lat_t[fcst_p[:,:,0].data>0])
+                    latmax = np.nanmax(lat_t[fcst_p[:,:,0].data>0])
+                    lonmin = np.nanmin(lon_t[fcst_p[:,:,0].data>0])
+                    lonmax = np.nanmax(lon_t[fcst_p[:,:,0].data>0])
+
+                    mtd_plot_retro(str(self.grib_path_des), str(self.fig_path),[lonmin,latmin,lonmax,latmax],self.pre_acc,hrs_all,self.thresh,curr_date, \
+                         data_success,load_data_nc,self.lat,self.lon,fcst_p,obs_p,clus_bin,pair_prop)
+                
+                del clus_bin_p
+                del fcst_p
+                del obs_p
+
+            #Create npz files for retro runs with model/analysis
+            self.port_data_FILES(curr_date,start_hrs,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem)
+
+            if self.mtd_mode == 'Operational':#If in operational mode, create plots
+
+                #Save data for FF site
+                # METLoadEnsemble.port_data_FF(TRACK_PATH,GRIB_PATH_DES,datetime_curdate,start_hrs,end_fcst_hrs,hrs_all,pre_acc,thres,sigma,\
+                #     load_model,simp_bin,simp_prop,lat_t,lon_t,snow_mask)
+
+                for subsets in range(0,len(self.domain_sub)): #Loop through domain subset specifications to plot specific regions
+                    if self.snow_mask == False:
+
+                        #Plot the smoothed ensemble probabilities with object centroids
+                        mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                            self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
             
-            # #If requested, plot hourly paired mod/obs objects to manually check results by-eye
-            # if plot_allhours == 'TRUE' and model > 0:
-            #     #If the domain is subset, determine proper coordinates for plotting
-            #     latmin = np.nanmin(lat_t[fcst_p[:,:,0].data>0])
-            #     latmax = np.nanmax(lat_t[fcst_p[:,:,0].data>0])
-            #     lonmin = np.nanmin(lon_t[fcst_p[:,:,0].data>0])
-            #     lonmax = np.nanmax(lon_t[fcst_p[:,:,0].data>0])
-            #     #METPlotEnsemble.MTDPlotRetroJustPrecip(GRIB_PATH_DES,FIG_PATH,[lonmin,latmin,lonmax,latmax],pre_acc,hrs_all,thres,curdate, \
-            #     #    data_success,load_data_nc,self.lat,self.lon,fcst_p,obs_p)
-            #     METPlotEnsemble.MTDPlotRetro(GRIB_PATH_DES,FIG_PATH,[lonmin,latmin,lonmax,latmax],pre_acc,hrs_all,thres,curdate, \
-            #         data_success,load_data_nc,self.lat,self.lon,fcst_p,obs_p,clus_bin,pair_prop)
-            
-            del clus_bin_p
-            del fcst_p
-            del obs_p
+                        #Plot the objects for each TLE
+                        mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                            self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
+
+                    elif self.snow_mask == True:        
+                        #Plot the smoothed ensemble probabilities with object centroids
+                        mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                            self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop)
+                    
+                    if (self.transfer_to_prod):
+                        #Copy over relevant images to proper websites 
+                        self.port_data_FIGS(curr_date)
+                    
+
+            del simp_prop 
+            del pair_prop 
+            del simp_bin
+
+            #Delete any files that are no longer needed
+            self.sweep(curr_date, MTDfile_new)
