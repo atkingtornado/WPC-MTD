@@ -6,7 +6,7 @@ import numpy as np
 import time
 from netCDF4 import Dataset
 from .utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig, load_data_str
-from .plot import mtd_plot_retro, mtd_plot_all_fcst, mtd_plot_tle_fcst
+from .plot import mtd_plot_retro, mtd_plot_all_fcst, mtd_plot_tle_fcst, mtd_plot_all_snow_fcst
 
 
 @dataclasses.dataclass
@@ -1210,7 +1210,7 @@ class WPCMTD:
                         output=os.system("mv "+str(self.grib_path_temp)+"/"+load_data_nc[model]+"2 "+data_name_nc[fcst_hr_count])
                             
                         #Construct an array of filenames in the previous model portion of the loop when in retro mode
-                        if (self.mtd_mode == 'Retro') and (self.load_model[0] not in load_data[model]):
+                        if (self.mtd_mode == 'Retro') and (self.load_model[0] not in self.load_data[model]):
                             data_name_nc_prev = np.append(data_name_nc_prev,str(self.grib_path_temp)+"/"+load_data[0]+"_f"+fcst_hr_str+fcst_min_str+".nc")
                         else:
                             data_name_nc_prev = np.append(data_name_nc_prev,'null')
