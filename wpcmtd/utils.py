@@ -1,6 +1,95 @@
 import os
 import datetime
 import pathlib
+import numpy as np
+from scipy import interpolate
+
+def read_CONUS_mask(grib_path,latlon_dims,grid_delta):
+    """
+    Reads an ASCII CONUS mask originally created in MATLAB, along with
+    the latitude-longitude grid coordinates, and interpolates the data to a new grid.
+
+    Parameters
+    ----------
+    grib_path : Pathlib.path
+    directory where data is stored.
+    latlon_dims : list
+    latitude/longitude dimensions for plotting [WLON,SLAT,ELON,NLAT]
+    grid_delta : int
+      grid resolution increment for interpolation (degrees lat/lon)
+
+    Returns
+    -------
+    CONUS_mask : numpy.array
+      data containing the CONUSmask (0 = not CONUS) 
+    lat_new : numpy.array
+      latitude corresponding to CONUS data
+    lon_new : numpy.array
+      longitude corresponding to CONUS data
+    """
+
+    #Error if specified lat/lon dims are outside CONUS (-129.8 to -60.2 W and 20.2 to 50.0 N)
+    if latlon_dims[0] < -129.8 or latlon_dims[2] > -60.2 or latlon_dims[1] < 20.2 or latlon_dims[3] > 50.0:
+        raise ValueError('User Specified lat/lon outside of boundary')
+
+    lat_count = 0  
+    fobj = open(str(grib_path)+'/ERO/static/CONUS_lat.txt', 'r')
+    for line in fobj:
+        if lat_count == 0:
+            lat = [float(i) for i in line.split()] 
+        else:
+            lat = np.vstack((lat,[float(i) for i in line.split()]))
+        lat_count += 1
+        
+    lon_count = 0  
+    fobj = open(str(grib_path)+'/ERO/static/CONUS_lon.txt', 'r')
+    for line in fobj:
+        if lon_count == 0:
+            lon = [float(i) for i in line.split()]
+        else:
+            lon = np.vstack((lon,[float(i) for i in line.split()]))
+        lon_count += 1
+        
+    mask_count = 0  
+    fobj = open(str(grib_path)+'/ERO/static/CONUSmask.txt', 'r')
+    for line in fobj:
+        if mask_count == 0:
+            CONUSmask = [float(i) for i in line.split()]
+        else:
+            CONUSmask = np.vstack((CONUSmask,[float(i) for i in line.split()]))
+        mask_count += 1
+
+    #Create new grid from user specified boundaries and resolution
+    [lon_new,lat_new] = np.meshgrid(np.linspace(latlon_dims[0],latlon_dims[2],int(np.round((latlon_dims[2]-latlon_dims[0])/grid_delta,2)+1.0)), \
+        np.linspace(latlon_dims[3],latlon_dims[1],int(np.round((latlon_dims[3]-latlon_dims[1])/grid_delta,2)+1.0)))
+
+    #print('lon')
+    #print(lon)
+    #print('lon flatten and lat flatten')
+    #print(np.stack((lon.flatten(),lat.flatten()),axis=1))
+    #print('conus mask flatten')
+    #print(CONUSmask.flatten())
+    #print('lon_new')
+    #print(lon_new)
+    #Interpolate delx and dely from static grid to user specified grid
+    CONUSmask = interpolate.griddata(np.stack((lon.flatten(),lat.flatten()),axis=1),CONUSmask.flatten(),(lon_new,lat_new),method='linear')
+
+    if grid_delta == 0.09: #Load a make-shift mask that filters out excessive coastal ST4>FFG regions
+        #f         = Dataset(grib_path+'/ERO_verif/static/ST4gFFG_s2017072212_e2017082212_vhr12.nc', "a", format="NETCDF4")
+        f         = Dataset(str(grib_path)+'/ERO_verif/static/ST4gFFG_s2017072212_e2017082212_vhr12.nc', "r", format="NETCDF4")
+        temp      = (np.array(f.variables['ST4gFFG'][:])<=0.20)*1
+        lat       = np.array(f.variables['lat'][:])*1
+        lon       = np.array(f.variables['lon'][:])*1
+        lat       = np.tile(lat,(len(lon),1)).T
+        lon       = np.tile(lon,(len(lat),1))
+        f.close()
+        
+        temp      = interpolate.griddata(np.stack((lon.flatten(),lat.flatten()),axis=1),temp.flatten(),(lon_new,lat_new))
+        
+        CONUSmask = CONUSmask * temp
+     
+    return(CONUSmask,lat_new,lon_new)
+
 
 def adjust_date_range(start_date, end_date, init_inc):
     """

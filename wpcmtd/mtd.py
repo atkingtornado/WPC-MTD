@@ -1,5 +1,6 @@
 import os
 import dataclasses
+from typing import ClassVar
 import pathlib
 import datetime
 import numpy as np
@@ -12,7 +13,7 @@ from .plot import mtd_plot_retro, mtd_plot_all_fcst, mtd_plot_tle_fcst, mtd_plot
 @dataclasses.dataclass
 class WPCMTD:
     """
-    This class is responsible for configuring all the neccecary components 
+    This class is responsible for configuring all the necessary components 
     required for Model Evaluation Tools (MET) Mode Time Domain (MTD) verification.
     """
 
@@ -42,20 +43,22 @@ class WPCMTD:
     sigma:          int               # Gaussian Filter for smoothing ensemble probabilities in some plots (grid points)
     domain_sub:     [str]             # Sub-domain names for plotting
     latlon_sub:     [[int]]           # Sub-domain lat/lon sizes for plotting
+    transfer_to_prod: bool            # Flag to toggle data/plot transfer to prod servers
 
-    transfer_to_prod: bool = False
-    grib_path_temp: pathlib.PosixPath = None
-    lat:            float = None
-    lon:            float = None
-    offset_fcsthr:  [float] = dataclasses.field(default_factory=list) 
-    acc_int:        [int] = dataclasses.field(default_factory=list) 
-    init_yrmondayhr:[] = dataclasses.field(default_factory=list) 
-    reg_mask_file:  [] = dataclasses.field(default_factory=list) 
-    ops_check:      float = 60*60*0.0   
+    grib_path_temp:  ClassVar[pathlib.PosixPath] = None
+    lat:             ClassVar[float]             = None
+    lon:             ClassVar[float]             = None
+    offset_fcsthr:   ClassVar[list]              = []
+    acc_int:         ClassVar[list]              = []
+    init_yrmondayhr: ClassVar[list]              = []
+    reg_mask_file:   ClassVar[list]              = []
+    ops_check:       ClassVar[float]             = 60*60*0.0
+    start_hrs:       ClassVar[float]             = 0.0
 
 
     # Perform post-initalization checks and property updates based on initial values
     def __post_init__(self):
+
         # Adjust beginning and end dates to proper ranges given initialization increment 
         (beg_date, end_date) = adjust_date_range(self.beg_date,self.end_date, self.init_inc)
         self.beg_date = beg_date
@@ -109,7 +112,7 @@ class WPCMTD:
     def list_date(self):
         #Create datetime list of all model initializations to be loaded
         if self.mtd_mode == 'Operational':
-            return [self.beg_date]
+            return np.array([self.beg_date])
         else:
             delta = self.end_date - self.beg_date
             total_incs = int(((delta.days * 24) + (delta.seconds / 3600) - 1) / self.init_inc)
@@ -117,7 +120,7 @@ class WPCMTD:
             for i in range(total_incs+1):
                 if (self.beg_date + datetime.timedelta(hours = i * self.init_inc)).month in self.season_sub:
                     list_date = np.append(list_date,self.beg_date + datetime.timedelta(hours = i * self.init_inc))
-            return list_date
+            return np.array(list_date)
     @property
     def hrs(self):
         #Set the proper forecast hours load depending on the initialization
@@ -125,7 +128,7 @@ class WPCMTD:
         #Remove partial accumulation periods
         hrs = hrs[hrs > 0]
         return hrs
-     
+
     def setup_data(self, curr_date):
         """
         Pre-processing step to load the CAM model data and/or ST4 obs located 
@@ -375,7 +378,7 @@ class WPCMTD:
             output = os.system(str(self.met_path)+'/pcp_combine -sum  '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
                 APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
         
-        time.sleep(2)
+        # time.sleep(2)
 
     def apply_snow_mask(self, model, data_name_nc, data_name_grib, data_name_grib_prev, \
         APCP_str_end, fcst_hr_count):
@@ -901,7 +904,7 @@ class WPCMTD:
         return(lat, lon, grid_mod, grid_obs, simp_bin, clus_bin, simp_prop, pair_prop, data_success)
 
 
-    def port_data_FILES(self, curr_date,start_hrs,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem):
+    def port_data_FILES(self, curr_date,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem):
         """
         This function creates NPZ track files from one retro model/analysis run.
 
@@ -909,8 +912,6 @@ class WPCMTD:
         ----------
         curr_date : datetime.datetime object
             Start date of data to be loaded.
-        start_hrs : float
-            number start forecast hour
         hour_success : [int]
             binomial array of successful forecast hours loaded
         MTDfile_new : [str]
@@ -934,26 +935,28 @@ class WPCMTD:
         #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
         if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
             for model in range(len(self.load_data)):
+                print('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
                 os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
 
         if self.mtd_mode == 'Retro':
-
+            print("RETRO")
             #Save the simple and paired model/obs track files specifying simp/pair, start/end time, hour acc. interval, and threshold
             if (np.sum(hour_success) > 0) and (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[1]):
-                np.savez(str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
-                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(start_hrs))+\
-                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),simp_prop_k = simp_prop[0],data_exist = data_exist)
-                np.savez(str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
-                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(start_hrs))+\
-                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),pair_prop_k = pair_prop[0],data_exist = data_exist)
+                print("HERE", data_exist)
+                np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
+                    '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),simp_prop_k = simp_prop[0],data_exist = data_exist)
+                np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
+                    '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),pair_prop_k = pair_prop[0],data_exist = data_exist)
 
                 #Gunzip the files
-                output = os.system('gzip '+str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
-                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(start_hrs))+\
-                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
-                output = os.system('gzip '+str(self.track_path)+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
-                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(start_hrs))+\
-                    '_e'+str(int(start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
+                output = os.system('gzip '+str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
+                    '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
+                output = os.system('gzip '+str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
+                    '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
 
     def port_data_FIGS(self, curdate):
         """
@@ -1035,14 +1038,15 @@ class WPCMTD:
 
         #Fix an issue by deleting a folder created in METLoadEnsemble.setupData if no plotting is requested
         if self.plot_allhours == False and self.mtd_mode == 'Retro':
-            os.system("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(datetime_curdate.year)+'{:02d}'.format(datetime_curdate.month)+ \
-                '{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour))
+            os.system("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
 
         #Delete MTD output in specific situations
         if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
             for model in range(len(MTDfile_new)):
-                print('rm -rf '+str(self.track_path)+MTDfile_new[model][0:21]+'*')
-                os.system('rm -rf '+str(self.track_path)+MTDfile_new[model][0:21]+'*')
+                print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+                os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+
 
     def run_mtd(self):
         """
@@ -1064,7 +1068,6 @@ class WPCMTD:
 
         #Record the current date
         datetime_now = datetime.datetime.now()
-        start_hrs = 0.0
 
         for curr_date in self.list_date:
             self.setup_data(curr_date)
@@ -1211,7 +1214,7 @@ class WPCMTD:
                             
                         #Construct an array of filenames in the previous model portion of the loop when in retro mode
                         if (self.mtd_mode == 'Retro') and (self.load_model[0] not in self.load_data[model]):
-                            data_name_nc_prev = np.append(data_name_nc_prev,str(self.grib_path_temp)+"/"+load_data[0]+"_f"+fcst_hr_str+fcst_min_str+".nc")
+                            data_name_nc_prev = np.append(data_name_nc_prev,str(self.grib_path_temp)+"/"+self.load_data[0]+"_f"+fcst_hr_str+fcst_min_str+".nc")
                         else:
                             data_name_nc_prev = np.append(data_name_nc_prev,'null')
                         
@@ -1371,7 +1374,7 @@ class WPCMTD:
                 del obs_p
 
             #Create npz files for retro runs with model/analysis
-            self.port_data_FILES(curr_date,start_hrs,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem)
+            self.port_data_FILES(curr_date,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem)
 
             if self.mtd_mode == 'Operational':#If in operational mode, create plots
 
