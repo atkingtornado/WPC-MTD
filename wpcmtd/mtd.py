@@ -249,6 +249,8 @@ class WPCMTD:
         self.fig_path = pathlib.Path(self.fig_path, yrmondayhr)
         self.fig_path.mkdir(parents=True, exist_ok=True)
 
+        self.track_path.mkdir(parents=True, exist_ok=True)
+
         #Load static data file and initialize needed variables for later
         f = Dataset(pathlib.Path(self.grib_path,'static','STATIC.nc'), "a", format="NETCDF4")
         lat=f.variables['lat'][:]
@@ -306,13 +308,13 @@ class WPCMTD:
         """
 
         #Create variable name for pcp_combine
-        if self.load_qpe[0] in self.load_data:
+        if self.load_qpe[0] in self.load_data[model]:
             pcp_combine_str = '00000000_000000'
         else:
             pcp_combine_str = self.init_yrmondayhr[model][:-2]+'_'+self.init_yrmondayhr[model][-2:]+'0000'
 
         #Create variables names for pcp_combine
-        if 'ST4' in self.load_data:
+        if 'ST4' in self.load_data[model]:
             pcp_combine_str_beg = '00000000_000000'
         else:
             pcp_combine_str_beg = self.init_yrmondayhr[model][:-2]+'_'+self.init_yrmondayhr[model][-2::]+'0000 '
@@ -320,7 +322,7 @@ class WPCMTD:
 
         #Use MET pcp_combine to sum, except for 1 hr acc from NAM, which contains either 1, 2, 3 hr acc. precip
         os.chdir(self.grib_path_temp)
-        if 'HIRESNAM' in self.load_data and self.pre_acc == 1:
+        if 'HIRESNAM' in self.load_data[model] and self.pre_acc == 1:
             if ((fcst_hr - 1) % 3) == 0:   #Every 3rd hour contains 1 hr acc. precip
                 output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+ \
                     pcp_combine_str_end+APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -pcpdir '+ \
@@ -333,13 +335,13 @@ class WPCMTD:
                 output = os.system(str(self.met_path)+'/pcp_combine -subtract '+str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count]+' 030000 '+ \
                     str(self.grib_path_temp)+'/'+data_name_grib[fcst_hr_count-1]+' 020000 '+str(self.grib_path_temp)+'/'+load_data_nc+ \
                     ' -name "'+APCP_str_end+'"')
-        elif 'HIRESNAM' in self.load_data and self.pre_acc % 3 == 0: #NAM increments divisible by 3
+        elif 'HIRESNAM' in self.load_data[model] and self.pre_acc % 3 == 0: #NAM increments divisible by 3
             output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' 030000 '+ \
                 pcp_combine_str_end+' '+APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+ load_data_nc+ \
                 ' -pcpdir '+str(self.grib_path_temp)+'/  -name "'+APCP_str_end+'"')
-        elif 'HIRESNAM' in self.load_data and self.pre_acc % 3 == 1: #Error if desired interval is not 1 or divisible by 3
+        elif 'HIRESNAM' in self.load_data[model] and self.pre_acc % 3 == 1: #Error if desired interval is not 1 or divisible by 3
             raise ValueError('NAM pre_acc variable can only be 1 or divisible by 3')
-        elif 'NEWSe60min' in self.load_data:
+        elif 'NEWSe60min' in self.load_data[model]:
             if fcst_hr_load == 1: #If using fcst hour 1, no need to subtract data
                 output = os.system(str(self.met_path)+'/pcp_combine -sum '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
                     APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
@@ -347,21 +349,21 @@ class WPCMTD:
             #     output = os.system(str(self.met_path)+"/pcp_combine -subtract "+GRIB_PATH_TEMP+"/"+data_name_grib[fcst_hr_count]+" "+last_fcst_hr_str+" "+ \
             #         GRIB_PATH_TEMP+"/"+data_name_grib[fcst_hr_count-1]+" "+'{:02d}'.format(int(last_fcst_hr_str)-1)+" "+GRIB_PATH_TEMP+"/"+ \
             #         load_data_nc+' -name "'+APCP_str_end+'"')
-        elif 'NEWSe5min' in self.load_data:
+        elif 'NEWSe5min' in self.load_data[model]:
             output = os.system(str(self.met_path)+'/pcp_combine -sum  '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
                 APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -field \'name="'+APCP_str_beg+'"; level="Surface";\''+ \
                 ' -name "'+APCP_str_end+'"')
-        elif 'MRMS_' in self.load_data:
+        elif 'MRMS_' in self.load_data[model]:
             call_str = [data_name_grib[i]+' \'name="MultiSensor_QPE_01H_Pass2" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/acc_int)),\
                 int((fcst_hr_count+1)*(self.pre_acc/acc_int)))]
             output = os.system(str(self.met_path)+'/pcp_combine -add  '+' '.join(call_str)+' '+ \
                 str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'" -v 3')
-        elif 'MRMS15min_' in self.load_data:
+        elif 'MRMS15min_' in self.load_data[model]:
             call_str = [data_name_grib[i]+' \'name="RadarOnly_QPE_15M" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/acc_int)),\
                 int((fcst_hr_count+1)*(self.pre_acc/acc_int)))]
             output = os.system(str(self.met_path)+'/pcp_combine -add  '+' '.join(call_str)+' '+ \
                 str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
-        elif 'HRRRe' in self.load_data:
+        elif 'HRRRe' in self.load_data[model]:
             if self.pre_acc != 1:
                 raise ValueError('HRRRe pre_acc variable can only be set to 1')
             #HRRRe accumulates precip, so must subtract data from previous hour to obtain 1 hour acc. precip.
@@ -885,6 +887,7 @@ class WPCMTD:
             #END try statement
 
         else: #If statement, file does not exist
+            print("NO FILE: ", str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc')
 
             lat          = np.nan
             lon          = np.nan
@@ -935,14 +938,11 @@ class WPCMTD:
         #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
         if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
             for model in range(len(self.load_data)):
-                print('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
                 os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
 
         if self.mtd_mode == 'Retro':
-            print("RETRO")
             #Save the simple and paired model/obs track files specifying simp/pair, start/end time, hour acc. interval, and threshold
             if (np.sum(hour_success) > 0) and (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[1]):
-                print("HERE", data_exist)
                 np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),simp_prop_k = simp_prop[0],data_exist = data_exist)
@@ -1230,7 +1230,7 @@ class WPCMTD:
                     #Remove original grib files
                     for files in data_name_grib:
                         output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+files+'*')
-                      
+
                     #Determine which hours are successfully loaded for each model
                     if (self.mtd_mode == 'Retro'):
                         hour_success = (data_success[:,[i for i in range(0,len(self.load_data)) if self.load_data[i] == self.load_qpe[0]][0]] + \
@@ -1278,7 +1278,7 @@ class WPCMTD:
                 if self.mtd_mode == 'Retro' and self.load_data[model] != self.load_qpe[0] and np.nanmean(data_success[:,model]) == 1:
                     print('skipped')
                     break
-                
+
                 #Run MTD: 1) if QPE exists compare model to obs, otherwise 2) run mtd in single mode   
                 output = []
                 if self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]:
@@ -1287,7 +1287,7 @@ class WPCMTD:
                 elif self.mtd_mode == 'Operational' and self.load_qpe[0] not in self.load_data[model]: #No QPE, compare model to itself
                     mtd_success = os.system(str(self.met_path)+'/mtd -single '+' '.join(data_name_nc[hour_success])+' -config '+ \
                         str(config_name)+' -outdir '+str(self.grib_path_temp))
-                
+
                 #Matrix to gather all netcdf file strings
                 data_name_nc_all = np.append(data_name_nc_all,data_name_nc)
 
@@ -1302,7 +1302,7 @@ class WPCMTD:
                     output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_sc.txt')
                     output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_ps.txt')
                     output = os.system('rm -rf '+str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_3d_pc.txt')
-
+                
             # END through model
 
             #Remove the netcdf files
