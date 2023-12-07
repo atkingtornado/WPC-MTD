@@ -3,6 +3,38 @@ import datetime
 import pathlib
 import numpy as np
 from scipy import interpolate
+import math
+
+def haversine2_distance(origin, destination):
+    """
+    Haversine formula (distance between latitude longitude pairs) in Python.
+    Copied from https://gist.github.com/rochacbruno/2883505 by MJE. 20171012.
+
+    Parameters
+    ----------
+    origin : [float]
+        List containing origin lat/lon pair.
+    destination : [float]
+        List containing origin lat/lon pair.
+
+    Returns
+    -------
+    d : float
+      Distance between lat/lon pairs
+    """
+    lat1, lon1 = origin
+    lat2, lon2 = destination
+    radius = 6371 # km
+
+    dlat = math.radians(lat2-lat1)
+    dlon = math.radians(lon2-lon1)
+    a = math.sin(dlat/2) * math.sin(dlat/2) + math.cos(math.radians(lat1)) \
+        * math.cos(math.radians(lat2)) * math.sin(dlon/2) * math.sin(dlon/2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    d = radius * c
+
+    return d
+
 
 def read_CONUS_mask(grib_path,latlon_dims,grid_delta):
     """
@@ -12,9 +44,9 @@ def read_CONUS_mask(grib_path,latlon_dims,grid_delta):
     Parameters
     ----------
     grib_path : Pathlib.path
-    directory where data is stored.
+        directory where data is stored.
     latlon_dims : list
-    latitude/longitude dimensions for plotting [WLON,SLAT,ELON,NLAT]
+        latitude/longitude dimensions for plotting [WLON,SLAT,ELON,NLAT]
     grid_delta : int
       grid resolution increment for interpolation (degrees lat/lon)
 

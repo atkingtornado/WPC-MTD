@@ -503,7 +503,7 @@ class WPCMTD:
                         +' -value -9999 -name '+APCP_str_end)
                     os.system('mv '+data_name_nc[fcst_hr_count]+'2 '+data_name_nc[fcst_hr_count])
 
-    def load_data_MTDV90(self, MTDfile_new, model):
+    def load_data_MTDV90(self, data_path, MTDfile_new, model):
         """
         load_data_MTDV90 loads MTD object data. This includes gridded simple and cluster binary
         data(simp_bin,clus_bin), which separately considers model/observation. Since
@@ -524,6 +524,8 @@ class WPCMTD:
 
         Parameters
         ----------
+            data_path : Pathlib.path
+                path to data file(s)
             MTDfile_new : string
                 QPE string for the netcdf converted data (must point to model, not ST4. ST4 data is in model)
             model : int
@@ -562,14 +564,14 @@ class WPCMTD:
         pair_prop = np.ones((9,10000))*-999
 
         #Check to see if file exists
-        if os.path.isfile(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc'):
+        if os.path.isfile(str(data_path)+'/'+MTDfile_new+'_obj.nc'):
 
             #If file exists, try to open it up
             try:
 
                 #####1) First read in the 2d text file to gather centroid intensity and location
                 #Open file and read through it
-                target = open(str(self.grib_path_temp)+'/'+MTDfile_new+'_2d.txt','r')
+                target = open(str(data_path)+'/'+MTDfile_new+'_2d.txt','r')
                 data = target.readlines()
                 target.close()
 
@@ -700,7 +702,7 @@ class WPCMTD:
                 pair_prop = pair_prop[:, np.nanmean(pair_prop[0:7,:] == -999, axis=0) == 0]
 
                 #####2) Next read in the centroid shape data from the netcdf file
-                f = Dataset(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc', "a", format="NETCDF4")
+                f = Dataset(str(data_path)+'/'+MTDfile_new+'_obj.nc', "a", format="NETCDF4")
                 lat=f.variables['lat'][:]
                 lon=f.variables['lon'][:]
 
@@ -887,7 +889,7 @@ class WPCMTD:
             #END try statement
 
         else: #If statement, file does not exist
-            print("NO FILE: ", str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc')
+            print("NO FILE: ", str(data_path)+'/'+MTDfile_new+'_obj.nc')
 
             lat          = np.nan
             lon          = np.nan
@@ -1042,10 +1044,10 @@ class WPCMTD:
                 '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
 
         #Delete MTD output in specific situations
-        if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
-            for model in range(len(MTDfile_new)):
-                print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
-                os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+        # if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
+        #     for model in range(len(MTDfile_new)):
+        #         print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+        #         os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
 
 
     def run_mtd(self):
@@ -1322,10 +1324,10 @@ class WPCMTD:
                 #Retro mode has one model/one obs only, but the obs are in the model data, so load model but collect obs for retro
                 if self.mtd_mode == 'Retro':    
                     (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                        self.load_data_MTDV90(MTDfile_new[1], model)
+                        self.load_data_MTDV90(self.grib_path_temp, MTDfile_new[1], model)
                 else:
                     (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                        self.load_data_MTDV90(MTDfile_new[model], model)
+                        self.load_data_MTDV90(self.grib_path_temp, MTDfile_new[model], model)
 
                 #Determine length of hours, place into matrices properly time-matched
                 if self.mtd_mode == 'Retro':
