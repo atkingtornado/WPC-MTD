@@ -708,7 +708,7 @@ class WPCMTDBiasLookup(WPCMTD):
         #Append 'nc' to load_model
         load_model_nc = [i+'.nc' for i in self.load_model]
 
-        self.setup_data(self.list_date[-1])
+        self.setup_data(self.end_date)
 
         #Load retro stats when specified, otherwise load previously existing files
         biaslookup_file = str(self.track_path)+'/'+ str(self.grib_path_des)+'_biaslookup_s'+\
