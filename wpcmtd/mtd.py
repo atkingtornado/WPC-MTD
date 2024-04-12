@@ -940,23 +940,36 @@ class WPCMTD:
         #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
         if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
             for model in range(len(self.load_data)):
-                os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
+                print("       -----   HERE:     -----     ")
+                print(self.init_yrmondayhr[model], MTDfile_new[model])
+                track_save_path = pathlib.Path(self.track_path,self.init_yrmondayhr[model][:4],self.init_yrmondayhr[model][:-2])
+                track_save_path.mkdir(parents=True, exist_ok=True)
+                track_save_path = str(track_save_path)
+
+                os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+track_save_path)
 
         if self.mtd_mode == 'Retro':
+
+            track_save_path = pathlib.Path(self.track_path,'{:04d}'.format(curr_date.year),'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+'{:02d}'.format(curr_date.day))
+            track_save_path.mkdir(parents=True, exist_ok=True)
+            track_save_path = str(track_save_path)
+
             #Save the simple and paired model/obs track files specifying simp/pair, start/end time, hour acc. interval, and threshold
             if (np.sum(hour_success) > 0) and (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[1]):
-                np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                np.savez(track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),simp_prop_k = simp_prop[0],data_exist = data_exist)
-                np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                
+                np.savez(track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),pair_prop_k = pair_prop[0],data_exist = data_exist)
 
-                #Gunzip the files
-                output = os.system('gzip '+str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                #Gzip the files
+                output = os.system('gzip '+track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
-                output = os.system('gzip '+str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                
+                output = os.system('gzip '+track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
 

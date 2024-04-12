@@ -7,6 +7,7 @@ import time
 import glob
 from scipy import interpolate
 from scipy.ndimage.filters import gaussian_filter
+import pathlib
 
 from .mtd import WPCMTD
 from .utils import read_CONUS_mask, haversine2_distance
@@ -128,15 +129,17 @@ class WPCMTDBiasLookup(WPCMTD):
 
                 #Load paired model/obs track files here
                 try:
-        
+                    track_load_path = pathlib.Path(self.track_path,'{:04d}'.format(datetime_curdate.year),'{:04d}'.format(datetime_curdate.year)+'{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day))
+                    track_load_path = str(track_load_path)
+
                     #Isolate member number if there are multiple members
                     if 'mem' in model:
                         mem = model[model.find('mem')+3:model.find('mem')+5]
-                        filename_load = str(self.track_path)+'/'+str(self.grib_path_ret)+'_m'+mem+'_'+'{:04d}'.format(datetime_curdate.year)+ \
+                        filename_load = track_load_path+'/'+str(self.grib_path_ret)+'_m'+mem+'_'+'{:04d}'.format(datetime_curdate.year)+ \
                             '{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour)+\
                             '_pair_prop'+'_s'+str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
                     else:
-                        filename_load = str(self.track_path)+'/'+str(self.grib_path_ret)+'_'+'{:04d}'.format(datetime_curdate.year)+ \
+                        filename_load = track_load_path+'/'+str(self.grib_path_ret)+'_'+'{:04d}'.format(datetime_curdate.year)+ \
                             '{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour)+\
                             '_pair_prop'+'_s'+str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
                         
@@ -544,7 +547,10 @@ class WPCMTDBiasLookup(WPCMTD):
                     else:
                         mem = '_'
 
-                    filename_load_simp = str(self.track_path)+'/'+str(self.grib_path_ret)+mem+'{:04d}'.format(datetime_curdate.year)+ \
+                    track_load_path = pathlib.Path(self.track_path,'{:04d}'.format(datetime_curdate.year),'{:04d}'.format(datetime_curdate.year)+'{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day))
+                    track_load_path = str(track_load_path)
+
+                    filename_load_simp = track_load_path+'/'+str(self.grib_path_ret)+mem+'{:04d}'.format(datetime_curdate.year)+ \
                         '{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour)+\
                         '_simp_prop'+'_s'+str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
 
@@ -755,14 +761,17 @@ class WPCMTDBiasLookup(WPCMTD):
             MTDfile_new[model] = 'mtd_'+ymdi[0:8]+'_h'+ymdi[8:10]+'_f'+'{:02d}'.format(int(self.end_fcst_hrs)+lag_inc)+'_'+ \
                 self.load_model[model]+'_p'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)
 
-            if len(glob.glob(str(self.track_path)+'/'+MTDfile_new[model]+'*')) > 0:
+            track_load_path = pathlib.Path(self.track_path,'{:04d}'.format(model_init.year),'{:04d}'.format(model_init.year)+'{:02d}'.format(model_init.month)+'{:02d}'.format(model_init.day))
+            track_load_path = str(track_load_path)
+
+            if len(glob.glob(track_load_path+'/'+MTDfile_new[model]+'*')) > 0:
                 ismodel = 1
             else:
                 ismodel = 0
             
             #Load the current tracks
             (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                self.load_data_MTDV90(self.track_path, MTDfile_new[model], model)
+                self.load_data_MTDV90(track_load_path, MTDfile_new[model], model)
 
             if np.isnan(np.nanmean(simp_prop_k)):
                 raise ValueError('There is no operational model to track.')
