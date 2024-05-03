@@ -1,4 +1,5 @@
 import os
+import pygrib
 import dataclasses
 from typing import ClassVar
 import pathlib
@@ -354,13 +355,13 @@ class WPCMTD:
                 APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -field \'name="'+APCP_str_beg+'"; level="Surface";\''+ \
                 ' -name "'+APCP_str_end+'"')
         elif 'MRMS_' in self.load_data[model]:
-            call_str = [data_name_grib[i]+' \'name="MultiSensor_QPE_01H_Pass2" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/acc_int)),\
-                int((fcst_hr_count+1)*(self.pre_acc/acc_int)))]
+            call_str = [data_name_grib[i]+' \'name="MultiSensor_QPE_01H_Pass2" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/self.acc_int[model])),\
+                int((fcst_hr_count+1)*(self.pre_acc/self.acc_int[model])))]
             output = os.system(str(self.met_path)+'/pcp_combine -add  '+' '.join(call_str)+' '+ \
                 str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'" -v 3')
         elif 'MRMS15min_' in self.load_data[model]:
-            call_str = [data_name_grib[i]+' \'name="RadarOnly_QPE_15M" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/acc_int)),\
-                int((fcst_hr_count+1)*(self.pre_acc/acc_int)))]
+            call_str = [data_name_grib[i]+' \'name="RadarOnly_QPE_15M" ; level="L0" ; \'' for i in range(int((fcst_hr_count)*(self.pre_acc/self.acc_int[model])),\
+                int((fcst_hr_count+1)*(self.pre_acc/self.acc_int[model])))]
             output = os.system(str(self.met_path)+'/pcp_combine -add  '+' '.join(call_str)+' '+ \
                 str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
         elif 'HRRRe' in self.load_data[model]:
@@ -940,8 +941,6 @@ class WPCMTD:
         #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
         if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
             for model in range(len(self.load_data)):
-                print("       -----   HERE:     -----     ")
-                print(self.init_yrmondayhr[model], MTDfile_new[model])
                 track_save_path = pathlib.Path(self.track_path,self.init_yrmondayhr[model][:4],self.init_yrmondayhr[model][:-2])
                 track_save_path.mkdir(parents=True, exist_ok=True)
                 track_save_path = str(track_save_path)
@@ -1401,6 +1400,7 @@ class WPCMTD:
                     if self.snow_mask == False:
 
                         #Plot the smoothed ensemble probabilities with object centroids
+                        print("plotting")
                         mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
                             self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
             
