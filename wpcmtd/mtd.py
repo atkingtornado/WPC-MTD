@@ -504,7 +504,7 @@ class WPCMTD:
                         +' -value -9999 -name '+APCP_str_end)
                     os.system('mv '+data_name_nc[fcst_hr_count]+'2 '+data_name_nc[fcst_hr_count])
 
-    def load_data_MTDV90(self, MTDfile_new, model):
+    def load_data_MTDV90(self, data_path, MTDfile_new, model):
         """
         load_data_MTDV90 loads MTD object data. This includes gridded simple and cluster binary
         data(simp_bin,clus_bin), which separately considers model/observation. Since
@@ -525,6 +525,8 @@ class WPCMTD:
 
         Parameters
         ----------
+            data_path : Pathlib.path
+                path to data file(s)
             MTDfile_new : string
                 QPE string for the netcdf converted data (must point to model, not ST4. ST4 data is in model)
             model : int
@@ -563,14 +565,14 @@ class WPCMTD:
         pair_prop = np.ones((9,10000))*-999
 
         #Check to see if file exists
-        if os.path.isfile(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc'):
+        if os.path.isfile(str(data_path)+'/'+MTDfile_new+'_obj.nc'):
 
             #If file exists, try to open it up
             try:
 
                 #####1) First read in the 2d text file to gather centroid intensity and location
                 #Open file and read through it
-                target = open(str(self.grib_path_temp)+'/'+MTDfile_new+'_2d.txt','r')
+                target = open(str(data_path)+'/'+MTDfile_new+'_2d.txt','r')
                 data = target.readlines()
                 target.close()
 
@@ -701,7 +703,7 @@ class WPCMTD:
                 pair_prop = pair_prop[:, np.nanmean(pair_prop[0:7,:] == -999, axis=0) == 0]
 
                 #####2) Next read in the centroid shape data from the netcdf file
-                f = Dataset(str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc', "a", format="NETCDF4")
+                f = Dataset(str(data_path)+'/'+MTDfile_new+'_obj.nc', "a", format="NETCDF4")
                 lat=f.variables['lat'][:]
                 lon=f.variables['lon'][:]
 
@@ -888,7 +890,7 @@ class WPCMTD:
             #END try statement
 
         else: #If statement, file does not exist
-            print("NO FILE: ", str(self.grib_path_temp)+'/'+MTDfile_new+'_obj.nc')
+            print("NO FILE: ", str(data_path)+'/'+MTDfile_new+'_obj.nc')
 
             lat          = np.nan
             lon          = np.nan
@@ -939,23 +941,36 @@ class WPCMTD:
         #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
         if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
             for model in range(len(self.load_data)):
-                os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+str(self.track_path))
+                print("       -----   HERE:     -----     ")
+                print(self.init_yrmondayhr[model], MTDfile_new[model])
+                track_save_path = pathlib.Path(self.track_path,self.init_yrmondayhr[model][:4],self.init_yrmondayhr[model][:-2])
+                track_save_path.mkdir(parents=True, exist_ok=True)
+                track_save_path = str(track_save_path)
+
+                os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+track_save_path)
 
         if self.mtd_mode == 'Retro':
+
+            track_save_path = pathlib.Path(self.track_path,'{:04d}'.format(curr_date.year),'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+'{:02d}'.format(curr_date.day))
+            track_save_path.mkdir(parents=True, exist_ok=True)
+            track_save_path = str(track_save_path)
+
             #Save the simple and paired model/obs track files specifying simp/pair, start/end time, hour acc. interval, and threshold
             if (np.sum(hour_success) > 0) and (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[1]):
-                np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                np.savez(track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),simp_prop_k = simp_prop[0],data_exist = data_exist)
-                np.savez(str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                
+                np.savez(track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),pair_prop_k = pair_prop[0],data_exist = data_exist)
 
-                #Gunzip the files
-                output = os.system('gzip '+str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                #Gzip the files
+                output = os.system('gzip '+track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
-                output = os.system('gzip '+str(self.track_path)+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                
+                output = os.system('gzip '+track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
 
@@ -1043,10 +1058,10 @@ class WPCMTD:
                 '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
 
         #Delete MTD output in specific situations
-        if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
-            for model in range(len(MTDfile_new)):
-                print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
-                os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+        # if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
+        #     for model in range(len(MTDfile_new)):
+        #         print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+        #         os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
 
 
     def run_mtd(self):
@@ -1323,10 +1338,10 @@ class WPCMTD:
                 #Retro mode has one model/one obs only, but the obs are in the model data, so load model but collect obs for retro
                 if self.mtd_mode == 'Retro':    
                     (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                        self.load_data_MTDV90(MTDfile_new[1], model)
+                        self.load_data_MTDV90(self.grib_path_temp, MTDfile_new[1], model)
                 else:
                     (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
-                        self.load_data_MTDV90(MTDfile_new[model], model)
+                        self.load_data_MTDV90(self.grib_path_temp, MTDfile_new[model], model)
 
                 #Determine length of hours, place into matrices properly time-matched
                 if self.mtd_mode == 'Retro':

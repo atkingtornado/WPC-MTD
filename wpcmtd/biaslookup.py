@@ -3,14 +3,16 @@ import dataclasses
 from typing import ClassVar
 import numpy as np
 import datetime
+import time
+import glob
 from scipy import interpolate
 from scipy.ndimage.filters import gaussian_filter
+import pathlib
 
-#from .mtd import WPCMTD
-#from .utils import read_CONUS_mask
 
-import mtd
-import utils
+from .mtd import WPCMTD
+from .utils import read_CONUS_mask, haversine2_distance
+from .plot import mtd_plot_retro_prob, mtd_plot_retro_disp_vect
 
 @dataclasses.dataclass
 class WPCMTDBiasLookup(WPCMTD):
@@ -25,10 +27,17 @@ class WPCMTDBiasLookup(WPCMTD):
     grid_res_agg     : int   # Grid res. (deg) of the aggregated grid. If =[], everything is aggregated spatially
     end_fcst_hrs_ret : float # Last forecast hour to be considered in retro loading
     update_freq      : int   # Update frequency to regenerate bias look up tables (to save time)
+    hourly_sub       : int   # Hourly subset within 'hourly_sub' oper. hours (e.g. oper. hour w/in +/- 'hourly sub')
 
-    lon_nat:   ClassVar[float] = None
-    lat_nat:   ClassVar[float] = None
-    CONUS_mask: ClassVar[int]   = None
+    lon_nat:         ClassVar[float] = None
+    lat_nat:         ClassVar[float] = None
+    CONUS_mask:      ClassVar[int]   = None
+    grid_pair:       ClassVar[list]  = None # grid showing model/obs differences of paired object attributes
+    grid_init:       ClassVar[list]  = None # grid showing model/obs differences of initiation object attributes
+    grid_disp:       ClassVar[list]  = None # grid showing model/obs differences of disipation object attributes
+    pair_prop_count: ClassVar[int]   = None # total sample size of data
+    grid_POYgPMY:    ClassVar[list]  = None # grid of probability of observation existing given model exists 
+
 
     # Perform post-initalization checks and property updates based on initial values
     def __post_init__(self):
@@ -69,26 +78,6 @@ class WPCMTDBiasLookup(WPCMTD):
             self.lat_nat = np.array([[self.latlon_dims[3],self.latlon_dims[3]],[self.latlon_dims[1],self.latlon_dims[1]]])
             self.CONUS_mask = np.ones((self.lat_nat.shape))
 
-    #####################INPUT FILES FOR load_pair_prop###############################
-    #TRACK_PATH        = path to track data
-    #GRIB_PATH_DES     = unique string ID for MET run
-    #load_model        = a string list of model data to be loaded
-    #list_date         = list of dates (datetime element)
-    #start_hrs         = start hour for MTD run (usually zero)
-    #end_fcst_hrs      = Last forecast hour to be considered
-    #pre_acc           = precipitation accumulation interval
-    #thres             = thrshold for precipitation data
-    #lat_nat           = latitude native grid
-    #lon_nat           = longitude native grid
-    #grid_res_agg      = grid resolution to aggregate statistics (e.g. search radius)
-    ####################OUTPUT FILES FOR load_pair_prop################################
-    #grid_pair         = grid showing model/obs differences of paired object attributes
-    #grid_init         = grid showing model/obs differences of initiation object attributes
-    #grid_disp         = grid showing model/obs differences of disipation object attributes
-    #pair_prop_count   = total sample size of data
-    ##data_exist_sum   = total sample size of data by grid point
-    ###################################################################################
-
     def load_pair_prop(self):
         """
         THIS FUNCTION LOADS THE PAIRED OBJECTS CREATED RETROSPECTIVELY USING 
@@ -121,12 +110,12 @@ class WPCMTDBiasLookup(WPCMTD):
             search_radius = np.floor(self.grid_res_agg / grid_res_nat ) - 1
         
         #Initialize the paired attributes matrices and other temporary variables
-        grid_pair       = [[[] for i in range(0,self.lat_nat.shape[1])] for j in range(0,self.lat_nat.shape[0])]         
-        grid_init       = [[[] for i in range(0,self.lat_nat.shape[1])] for j in range(0,self.lat_nat.shape[0])]   
-        grid_disp       = [[[] for i in range(0,self.lat_nat.shape[1])] for j in range(0,self.lat_nat.shape[0])] 
+        self.grid_pair       = [[[] for i in range(0,self.lat_nat.shape[1])] for j in range(0,self.lat_nat.shape[0])]         
+        self.grid_init       = [[[] for i in range(0,self.lat_nat.shape[1])] for j in range(0,self.lat_nat.shape[0])]   
+        self.grid_disp       = [[[] for i in range(0,self.lat_nat.shape[1])] for j in range(0,self.lat_nat.shape[0])] 
         xloc_u = []
         yloc_u = []
-        pair_prop_count = 0
+        self.pair_prop_count = 0
         data_sum_count  = 0
        
         #Determine if there is one or several datetime elements
@@ -141,15 +130,17 @@ class WPCMTDBiasLookup(WPCMTD):
 
                 #Load paired model/obs track files here
                 try:
-        
+                    track_load_path = pathlib.Path(self.track_path,'{:04d}'.format(datetime_curdate.year),'{:04d}'.format(datetime_curdate.year)+'{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day))
+                    track_load_path = str(track_load_path)
+
                     #Isolate member number if there are multiple members
                     if 'mem' in model:
                         mem = model[model.find('mem')+3:model.find('mem')+5]
-                        filename_load = str(self.track_path)+'/'+str(self.grib_path_ret)+'_m'+mem+'_'+'{:04d}'.format(datetime_curdate.year)+ \
+                        filename_load = track_load_path+'/'+str(self.grib_path_ret)+'_m'+mem+'_'+'{:04d}'.format(datetime_curdate.year)+ \
                             '{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour)+\
                             '_pair_prop'+'_s'+str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
                     else:
-                        filename_load = str(self.track_path)+'/'+str(self.grib_path_ret)+'_'+'{:04d}'.format(datetime_curdate.year)+ \
+                        filename_load = track_load_path+'/'+str(self.grib_path_ret)+'_'+'{:04d}'.format(datetime_curdate.year)+ \
                             '{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour)+\
                             '_pair_prop'+'_s'+str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
                         
@@ -182,7 +173,7 @@ class WPCMTDBiasLookup(WPCMTD):
                 ##OR DISSIPATE AND CALCULATE DIFFERENCES PERTAINING TO THAT.
                     
                 if np.mean(np.isnan(pair_prop_k)) < 1 and np.mean(pair_prop_k) == 0: #Model exists, but with no data
-                    pair_prop_count += 1
+                    self.pair_prop_count += 1
                         
                 elif np.mean(np.isnan(pair_prop_k)) < 1 and np.mean(pair_prop_k) != 0: #Model exists with data
 
@@ -346,9 +337,9 @@ class WPCMTDBiasLookup(WPCMTD):
                                     #Calculate x and y vector distance separately
                                     #ydiff  = pair_prop_k[4][mod_ind][0] - pair_prop_k[4][obs_ind][0]
                                     #xdiff  = pair_prop_k[5][mod_ind][0] - pair_prop_k[5][obs_ind][0]
-                                    ydiff = ysign * (haversine2.distance((pair_prop_k[4][mod_ind][0], pair_prop_k[5][mod_ind][0]), \
+                                    ydiff = ysign * (haversine2_distance((pair_prop_k[4][mod_ind][0], pair_prop_k[5][mod_ind][0]), \
                                         (pair_prop_k[4][obs_ind][0], pair_prop_k[5][mod_ind][0])))
-                                    xdiff = xsign * (haversine2.distance((pair_prop_k[4][mod_ind][0], pair_prop_k[5][mod_ind][0]), \
+                                    xdiff = xsign * (haversine2_distance((pair_prop_k[4][mod_ind][0], pair_prop_k[5][mod_ind][0]), \
                                         (pair_prop_k[4][mod_ind][0], pair_prop_k[5][obs_ind][0])))
                     
                                     #Calculate intensity, area, and angle differences (model - obs)
@@ -377,12 +368,12 @@ class WPCMTDBiasLookup(WPCMTD):
                                         for yloc_l in ysearch: #through yloc points    
             
                                             #Append data to paired attribute list [ydiff,xdiff,int_diff,area_diff,ang_diff]
-                                            if len(grid_pair[yloc_l][xloc_l]) == 0:
-                                                grid_pair[yloc_l][xloc_l] = [[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,fhour,dhour]]
+                                            if len(self.grid_pair[yloc_l][xloc_l]) == 0:
+                                                self.grid_pair[yloc_l][xloc_l] = [[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,fhour,dhour]]
                                                 xloc_u = np.append(xloc_u,xloc_l)
                                                 yloc_u = np.append(yloc_u,yloc_l)
                                             else:
-                                                grid_pair[yloc_l][xloc_l] = np.vstack((grid_pair[yloc_l][xloc_l],[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,fhour,dhour]))
+                                                self.grid_pair[yloc_l][xloc_l] = np.vstack((self.grid_pair[yloc_l][xloc_l],[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,fhour,dhour]))
                                                 xloc_u = np.append(xloc_u,xloc_l)
                                                 yloc_u = np.append(yloc_u,yloc_l)
                                     
@@ -414,8 +405,8 @@ class WPCMTDBiasLookup(WPCMTD):
                                 xsign = -1
                                     
                             #Calculate y and x distance with x and y, respectively, constant between mod/obs object !!!!!!!!!!!1START HERE!!!!!!!!!!!!
-                            ydiff = ysign * (haversine2.distance((lat_first_mod, lon_first_mod),(lat_first_obs, lon_first_mod)))
-                            xdiff = xsign * (haversine2.distance((lat_first_mod, lon_first_mod),(lat_first_mod, lon_first_obs)))
+                            ydiff = ysign * (haversine2_distance((lat_first_mod, lon_first_mod),(lat_first_obs, lon_first_mod)))
+                            xdiff = xsign * (haversine2_distance((lat_first_mod, lon_first_mod),(lat_first_mod, lon_first_obs)))
                 
                             #Calculate intensity, area, and angle differences (model - obs)
                             intdiff_10 = int_first_mod_10  - int_first_obs_10
@@ -438,10 +429,10 @@ class WPCMTDBiasLookup(WPCMTD):
                                 for yloc_l in ysearch: #through yloc points    
         
                                     #Append data to init attribute list mapped to obs location [ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_first_obs,dhour_first_obs]
-                                    if len(grid_init[yloc_l][xloc_l]) == 0:
-                                        grid_init[yloc_l][xloc_l] = [[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_first_obs,dhour_first_obs]]
+                                    if len(self.grid_init[yloc_l][xloc_l]) == 0:
+                                        self.grid_init[yloc_l][xloc_l] = [[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_first_obs,dhour_first_obs]]
                                     else:
-                                        grid_init[yloc_l][xloc_l] = np.vstack((grid_init[yloc_l][xloc_l], \
+                                        self.grid_init[yloc_l][xloc_l] = np.vstack((self.grid_init[yloc_l][xloc_l], \
                                             [ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_first_obs,dhour_first_obs]))
                                     #print grid_init[yloc_l][xloc_l]        
                                     #print('Model Init mapped to '+str([yloc_l,xloc_l])+ 'with values of '+str([ydiff,xdiff,intdiff,areadiff,angdiff,timediff]))
@@ -465,8 +456,8 @@ class WPCMTDBiasLookup(WPCMTD):
                                 xsign = -1
                                     
                             #Calculate y and x distance with x and y, respectively, constant between mod/obs object
-                            ydiff = ysign * (haversine2.distance((lat_final_mod, lon_final_mod),(lat_final_obs, lon_final_mod)))
-                            xdiff = xsign * (haversine2.distance((lat_final_mod, lon_final_mod),(lat_final_mod, lon_final_obs)))
+                            ydiff = ysign * (haversine2_distance((lat_final_mod, lon_final_mod),(lat_final_obs, lon_final_mod)))
+                            xdiff = xsign * (haversine2_distance((lat_final_mod, lon_final_mod),(lat_final_mod, lon_final_obs)))
                 
                             #Calculate intensity, area, and angle differences (model - obs)
                             intdiff_10 = int_final_mod_10 - int_final_obs_10
@@ -489,21 +480,206 @@ class WPCMTDBiasLookup(WPCMTD):
                                 for yloc_l in ysearch: #through yloc points    
        
                                     #Append data to disp attribute list mapped to obs location [ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_final_obs,dhour_final_obs]
-                                    if len(grid_disp[yloc_l][xloc_l]) == 0:
-                                        grid_disp[yloc_l][xloc_l] = [[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_final_obs,dhour_final_obs]]
+                                    if len(self.grid_disp[yloc_l][xloc_l]) == 0:
+                                        self.grid_disp[yloc_l][xloc_l] = [[ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_final_obs,dhour_final_obs]]
                                     else:
-                                        grid_disp[yloc_l][xloc_l] = np.vstack((grid_disp[yloc_l][xloc_l], \
+                                        self.grid_disp[yloc_l][xloc_l] = np.vstack((self.grid_disp[yloc_l][xloc_l], \
                                             [ydiff,xdiff,intdiff_10,intdiff_50,intdiff_90,areadiff,angdiff,timediff,fhour_final_obs,dhour_final_obs]))
                                         
                             #print('Model Disp. mapped to '+str([yloc_final_obs,xloc_final_obs,tloc_final_obs])+ 'with values of '+str([ydiff,xdiff,intdiff,areadiff,angdiff,timediff]))
                     
                     #END through track in one run 
-                    pair_prop_count += 1   
+                    self.pair_prop_count += 1   
                 #END loop through model exist check        
             #END loop through the models    
         #END loop through the dates
-        print(grid_pair, grid_init, grid_disp, pair_prop_count, data_exist_sum)
-        return(grid_pair, grid_init, grid_disp, pair_prop_count, data_exist_sum)
+
+
+    def load_pair_POYgPMY(self):
+        """
+        THIS FUNCTION LOADS THE AVERAGE PROBABILITY OF OBSERVED OBJECTS EXISTING (PROB OBS YES OR POY)
+        GIVEN THE SIMPLE MODEL OBJECT EXISTS (PROB MODEL YES OR PMY). THIS FUNCTION NEEDS ONLY 'simp_prop'
+        AND COMPARES THE SIMPLE TO CLUSTER OBJECTS WITHIN THE 2D TEXT OUTPUT FILES FROM MTD.
+        
+        NOTE: THESE STATISTICS ARE GATHERED FOR EACH UNIQUE TRACK, NOT FOR EACH TIME STAMP WITHIN EACH TRACK.
+        NOTE: SPATIALLY AGGREGATED STATISTICS ARE MAPPED TO THE MODEL GRID, NOT THE OBSERVATION GRID. THIS IS 
+        DIFFERENT FROM load_pair_prop* WHICH GATHERS MODEL DIFFERENCES ON THE OBSERVATION GRID.
+
+        Parameters
+        ----------
+            None
+
+        Returns
+        -------
+            None
+        """
+
+        #Calculate native grid resolution
+        grid_res_nat = np.unique(np.round(np.diff(self.lon_nat),1))
+
+        #Calculate search radius out for aggregate statistics in grid points
+        if self.grid_res_agg == []:
+            search_radius = 0
+        else:
+            search_radius = np.floor(self.grid_res_agg / grid_res_nat ) - 1
+
+        #Initialize the paired attributes matrices and other temporary variables
+        grid_mod_yes   = np.zeros((self.lat_nat.shape[0],self.lat_nat.shape[1])) #Grid of yes model instances
+        grid_mod_tot   = np.zeros((self.lat_nat.shape[0],self.lat_nat.shape[1])) #Grid of total model instances
+        self.grid_POYgPMY   = np.zeros((self.lat_nat.shape[0],self.lat_nat.shape[1])) #Grid of probability of observation yes given model yes
+        data_sum_count  = 0
+        simp_prop_count = 0
+
+        #Determine if there is one or several datetime elements
+        try:
+            temps = self.list_date.shape
+        except AttributeError:
+            self.list_date = [self.list_date]
+
+        #Loop through and aggregate data
+        for datetime_curdate in self.list_date: #through the dates
+            for model in [self.load_model[0]]: #through the members
+
+                #Load the simple and paired model/obs track files here
+                try:
+                    #Isolate member number if there are multiple members
+                    if 'mem' in model:
+                        mem = '_m'+model[model.find('mem')+3:model.find('mem')+5]+'_'
+                    else:
+                        mem = '_'
+
+                    track_load_path = pathlib.Path(self.track_path,'{:04d}'.format(datetime_curdate.year),'{:04d}'.format(datetime_curdate.year)+'{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day))
+                    track_load_path = str(track_load_path)
+
+                    filename_load_simp = track_load_path+'/'+str(self.grib_path_ret)+mem+'{:04d}'.format(datetime_curdate.year)+ \
+                        '{:02d}'.format(datetime_curdate.month)+'{:02d}'.format(datetime_curdate.day)+'{:02d}'.format(datetime_curdate.hour)+\
+                        '_simp_prop'+'_s'+str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
+
+                    #Unzip the file, load the data, and rezip the original file
+                    output    = os.system('gunzip '+filename_load_simp+'.gz')
+                    data_simp = np.load(filename_load_simp)
+                    output    = os.system('gzip '+filename_load_simp)
+
+                    #Initialize grid to sum total number of missing points
+                    if data_sum_count == 0:
+                        data_exist_sum = np.zeros((data_simp['data_exist'].shape))
+                        data_sum_count += 1
+
+                    #Archive the data
+                    simp_prop_k     = data_simp['simp_prop_k']
+                    data_exist_sum  = data_exist_sum + data_simp['data_exist']
+
+                except IOError:
+                    simp_prop_k = np.nan
+                    print(filename_load_simp+' and '+filename_load_simp+' Not Found')
+
+                ##Loop through each unique track, gathering information of whether the simple model has a cluster component.
+                if np.mean(np.isnan(simp_prop_k)) < 1 and np.mean(simp_prop_k) == 0: #Model exists, but with no data
+                    simp_prop_count += 1
+                elif np.mean(np.isnan(simp_prop_k)) < 1 and np.mean(simp_prop_k) != 0: #Model exists with data
+
+                    for mod_num in np.unique(simp_prop_k[0][simp_prop_k[0]>0]): #Through each model unique track
+     
+                        mod_use = np.where(simp_prop_k[0] == mod_num)[0]
+
+                        #Check to see if the average value of the entire track length is within the domain
+                        if not (np.nanmean(simp_prop_k[4][mod_use]) < np.nanmin(self.lat_nat) or np.nanmean(simp_prop_k[4][mod_use]) > np.nanmax(self.lat_nat) or \
+                            np.nanmean(simp_prop_k[5][mod_use]) < np.nanmin(self.lon_nat) or np.nanmean(simp_prop_k[5][mod_use]) > np.nanmax(self.lon_nat)):
+
+                            #Find average location of object on interpolation grid (maps to most southeast point on the grid)
+                            yloc  = int(np.argmax(np.diff([self.lat_nat[:,1]>np.nanmean(simp_prop_k[4][mod_use])]))+1)
+                            xloc  = int(np.argmax(np.diff([self.lon_nat[1,:]<np.nanmean(simp_prop_k[5][mod_use])]))+1)
+
+                            #Define search radius on aggregate grid, considering grid domains
+                            xsearch = np.arange(xloc-search_radius,xloc+search_radius+1,1)
+                            xsearch = xsearch[(xsearch >= 0) & (xsearch < self.lon_nat.shape[1])]
+                            xsearch = xsearch.astype(int)
+                            ysearch = np.arange(yloc-search_radius,yloc+search_radius+1,1)
+                            ysearch = ysearch[(ysearch >= 0) & (ysearch < self.lat_nat.shape[0])]
+                            ysearch = ysearch.astype(int)
+
+                            #Aggregate statistics to native grid using aggregate grid search radius
+                            for xloc_l in xsearch: #through xloc points
+                                for yloc_l in ysearch: #through yloc points
+
+                                    #If simple object is paired, then it's observational component exists
+                                    if np.nanmean(simp_prop_k[1][mod_use]) > 0:
+                                        grid_mod_yes[yloc_l,xloc_l] += 1
+                                
+                                    #Regardless of whether model object is paired, count the total number of simple model instances
+                                    grid_mod_tot[yloc_l,xloc_l] += 1
+
+                            #END search through grid
+                    simp_prop_count += 1 
+                    #END through model track
+                 #END if data exists 
+            #END through the members
+        #END loop through dates
+
+        #Calculate POYgPMY by looping through 'grid_mod_yes' and 'grid_mod_tot'
+        for xloc_l in range(grid_mod_yes.shape[1]):
+            for yloc_l in range(grid_mod_yes.shape[0]):
+                self.grid_POYgPMY[yloc_l,xloc_l] = (grid_mod_yes[yloc_l,xloc_l] / grid_mod_tot[yloc_l][xloc_l] ) *100
+
+
+    def gather_retro_biases(self, simp_prop):
+        """
+        COLLECT RETRO BIASES LINKED TO SPECIFIC REAL-TIME HEAVY PRECIPITATION OBJECTS.
+        
+        Parameters
+        ----------
+            simp_prop : []
+                Simple centroid info [MODEL][TYPE][TRACK] 
+
+        Returns
+        -------
+            pair_diff : []
+                retro bias differences (not averaged) in the form of [MODEL][TRACK]
+        """
+
+        #Loop through all of the operational models, and load the most current file
+        pair_diff    = [[[] for i in range(0,5000)] for j in range(0,len(self.load_model)+2)]
+
+        for model in range(0,len(self.load_model)):
+
+            #Loop through each individual track in simp_prop[MODEL][TYPE][TRACK]
+            #and append on retro bias differences (not averaged) for all events to pair_diff[MODEL][TRACK]
+            for ind_t in range(len(simp_prop[model][0])):
+
+                #Note: anything from -95.9999 to -94 is put into -94 longitude; anything from 37.999 to 36 is put into 36 latitude
+                yloc = int(np.argmax(np.diff([self.lat_nat[:,1]>simp_prop[model][4][ind_t]]))+1)
+                xloc = int(np.argmax(np.diff([self.lon_nat[1,:]<simp_prop[model][5][ind_t]]))+1)
+
+                #Determine the proper hour range from the tracks
+                if simp_prop[model][2][ind_t] > self.end_fcst_hrs_ret - self.hourly_sub: #ensure end forecast hours are at least 'hourly_sub' in length
+                    fcst_hour_range = np.arange(self.end_fcst_hrs_ret - self.hourly_sub*2,self.end_fcst_hrs_ret + 1,1)
+                else:
+                    fcst_hour_range = np.arange(simp_prop[model][2][ind_t] * self.pre_acc - self.hourly_sub,simp_prop[model][2][ind_t] * self.pre_acc + self.hourly_sub + 1,1)
+
+                #Through each instance of the retro differences in 'grid_pair' at the spatial location of the operational track, append to new variable 'pair_diff'
+                if self.CONUS_mask[yloc,xloc] == 1: #Location is inside CONUS
+                    diffdata = []
+                    rep_count = 0
+                    for rep in range(len(self.grid_pair[yloc][xloc])):
+                        #Only retain the data if the retro biases are within +/- 'hourly_sub' forecast hours of the current track forecast hour
+                        if self.grid_pair[yloc][xloc][rep][7] in fcst_hour_range:
+                            #'grid_pair' metadata: 0)ydiff, 1)xdiff, 2)intdiff_10, 3)intdiff_50, 4)intdiff_90, 5)areadiff, 6)angdiff, 7)fhour, 8)dhour, 9)POYgM
+                            diffdata_temp = np.array([-self.grid_pair[yloc][xloc][rep][0],-self.grid_pair[yloc][xloc][rep][1],-self.grid_pair[yloc][xloc][rep][2], \
+                                -self.grid_pair[yloc][xloc][rep][3],-self.grid_pair[yloc][xloc][rep][4],-self.grid_pair[yloc][xloc][rep][5],-self.grid_pair[yloc][xloc][rep][6], \
+                                 self.grid_pair[yloc][xloc][rep][7],self.grid_pair[yloc][xloc][rep][8],self.grid_POYgPMY[yloc][xloc]])
+                            if rep_count == 0:
+                                diffdata = diffdata_temp.T
+                            else:
+                                diffdata = np.vstack((diffdata,diffdata_temp.T))
+                            rep_count += 1
+
+                    if len(diffdata) == 0:
+                        diffdata = np.full((10,1),np.NaN)
+                    pair_diff[model][ind_t] = diffdata
+                else:
+                    pair_diff[model][ind_t] = np.full((10,1),np.NaN)
+
+        return(pair_diff)
 
     def run_biaslookup(self):
         """
@@ -539,36 +715,100 @@ class WPCMTDBiasLookup(WPCMTD):
         #Append 'nc' to load_model
         load_model_nc = [i+'.nc' for i in self.load_model]
 
-        self.setup_data(self.list_date[-1])
+        self.setup_data(self.end_date)
 
         #Load retro stats when specified, otherwise load previously existing files
         biaslookup_file = str(self.track_path)+'/'+ str(self.grib_path_des)+'_biaslookup_s'+\
             str(int(self.start_hrs))+'_e'+str(int(self.start_hrs+self.end_fcst_hrs_ret))+'_h'+\
             '{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz'
 
-        age_hrs = 1e10
-        #Determine age of bias look up table file, if age can't be determined, run new bias lookup tables
-        # try:
-        #     age     = os.stat(biaslookup_file)
-        #     age_hrs = (time.time()-age.st_mtime)/3600
-        # except OSError: #Rerun bias look
-        #     age_hrs = 1e10
+        # Determine age of bias look up table file, if age can't be determined, run new bias lookup tables
+        try:
+            age     = os.stat(biaslookup_file)
+            age_hrs = (time.time()-age.st_mtime)/3600
+        except OSError: #Rerun bias look
+            age_hrs = 1e10
 
-        print(biaslookup_file, age_hrs)
         #Rerun bias look up tables when it's time, otherwise load preexisting file
         if age_hrs >= self.update_freq:
             #Load the retro aggregated stats
             self.load_pair_prop()
 
-            # #Load the retro POY existing
-            # self.load_pair_POYgPMY()
+            #Load the retro POY existing
+            self.load_pair_POYgPMY()
 
-            # #Save the file
-            # np.savez(biaslookup_file,grid_pair = grid_pair, grid_POYgPMY = grid_POYgPMY)
+            #Save the file
+            np.savez(biaslookup_file, grid_pair=self.grid_pair, grid_POYgPMY=self.grid_POYgPMY)
 
         else:
             #Load the preexisting file
-            data          = np.load(biaslookup_file,allow_pickle='True')
-            grid_pair     = data['grid_pair']
-            grid_POYgPMY  = data['grid_POYgPMY']
+            data              = np.load(biaslookup_file,allow_pickle='True')
+            self.grid_pair    = data['grid_pair']
+            self.grid_POYgPMY = data['grid_POYgPMY']
 
+        #Initialize variables determining successfully downloaded models
+        MTDfile_new  = [[] for j in range(0,len(self.load_model))]
+        simp_bin     = np.zeros((self.lat.shape[0], self.lat.shape[1], int(self.end_fcst_hrs-self.start_hrs), len(self.load_model)),dtype=np.int8)
+        simp_prop    = [[] for i in range(0,len(self.load_model))]
+        data_success = np.ones([int(self.end_fcst_hrs-self.start_hrs), len(self.load_model)])
+
+        #Loop through all of the operational models, and load the most current file
+        for model in range(0,len(self.load_model)):
+
+            #Determine lag/model/date information and filename
+            lag_inc            = int(self.load_model[model][self.load_model[model].find('lag')+3:self.load_model[model].find('lag')+6])
+            model_init         = self.end_date - datetime.timedelta(hours = lag_inc)
+            ymdi               = '{:04d}'.format(model_init.year)+'{:02d}'.format(model_init.month)+'{:02d}'.format(model_init.day)+'{:02d}'.format(model_init.hour) 
+            MTDfile_new[model] = 'mtd_'+ymdi[0:8]+'_h'+ymdi[8:10]+'_f'+'{:02d}'.format(int(self.end_fcst_hrs)+lag_inc)+'_'+ \
+                self.load_model[model]+'_p'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)
+
+            track_load_path = pathlib.Path(self.track_path,'{:04d}'.format(model_init.year),'{:04d}'.format(model_init.year)+'{:02d}'.format(model_init.month)+'{:02d}'.format(model_init.day))
+            track_load_path = str(track_load_path)
+
+            if len(glob.glob(track_load_path+'/'+MTDfile_new[model]+'*')) > 0:
+                ismodel = 1
+            else:
+                ismodel = 0
+            
+            #Load the current tracks
+            (lat_t, lon_t, fcst_p, obs_p, simp_bin_p, clus_bin_p, simp_prop_k, pair_prop_k, data_success_p) = \
+                self.load_data_MTDV90(track_load_path, MTDfile_new[model], model)
+
+            if np.isnan(np.nanmean(simp_prop_k)):
+                raise ValueError('There is no operational model to track.')
+
+            hour_success          = data_success_p == 0
+            hours_true            = np.where(hour_success == 1)[0]
+            data_success[:,model] = data_success_p
+
+            if np.mean(np.isnan(simp_bin_p)) != 1:
+                simp_bin[:,:,hours_true,model] = simp_bin_p
+            del simp_bin_p
+            del clus_bin_p
+            del fcst_p
+            del obs_p
+            del pair_prop_k
+            del data_success_p
+
+            #Initialize simp_prop, which contains important plotting information
+            if not np.isnan(np.nanmean(simp_prop_k)):
+                simp_prop[model]       = simp_prop_k
+            else:
+                simp_prop[model]       = np.full((10,1),np.NaN)
+
+            #END model loop
+
+        #Gather paired differences and link to operational objects
+        pair_diff = self.gather_retro_biases(simp_prop)
+
+        #Loop through domain subset specifications to plot specific regions
+        for subsets in range(0,len(self.domain_sub)):
+            print(self.load_model)
+            if len(self.load_model) == 1: #If just specifying one model
+                #Plot the objects for each TLE
+                mtd_plot_retro_prob(str(self.grib_path_des)+self.domain_sub[subsets],str(self.fig_path),self.latlon_sub[subsets],\
+                    self.pre_acc,self.hrs,self.thresh,self.end_date,data_success,load_model_nc,self.lat,self.lon,simp_bin,simp_prop,pair_diff)
+
+            else:
+                mtd_plot_retro_disp_vect(str(self.grib_path_des)+self.domain_sub[subsets],str(self.fig_path),self.latlon_sub[subsets],\
+                    self.pre_acc,self.hrs,self.thresh,self.end_date, data_success,load_model_nc,self.lat,self.lon,simp_bin,simp_prop,pair_diff,self.sigma)
