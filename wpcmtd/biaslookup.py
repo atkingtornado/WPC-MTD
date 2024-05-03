@@ -6,8 +6,11 @@ import datetime
 from scipy import interpolate
 from scipy.ndimage.filters import gaussian_filter
 
-from .mtd import WPCMTD
-from .utils import read_CONUS_mask
+#from .mtd import WPCMTD
+#from .utils import read_CONUS_mask
+
+import mtd
+import utils
 
 @dataclasses.dataclass
 class WPCMTDBiasLookup(WPCMTD):
