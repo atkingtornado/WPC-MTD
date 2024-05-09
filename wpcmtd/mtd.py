@@ -55,7 +55,7 @@ class WPCMTD:
     init_yrmondayhr: ClassVar[list]              = []
     reg_mask_file:   ClassVar[list]              = []
     ops_check:       ClassVar[float]             = 60*60*0.0
-    start_hrs:       ClassVar[float]             = 0.1
+    start_hrs:       ClassVar[float]             = 0.0
 
 
     # Perform post-initalization checks and property updates based on initial values
@@ -248,8 +248,12 @@ class WPCMTD:
             if path.is_file():
                 path.unlink()
 
-        self.fig_path = pathlib.Path(self.fig_path, yrmondayhr)
-        self.fig_path.mkdir(parents=True, exist_ok=True)
+        if self.mtd_mode == 'Retro':
+            self.fig_path = pathlib.Path(self.fig_path)
+            self.fig_path.mkdir(parents=True, exist_ok=True)
+        else:
+            self.fig_path = pathlib.Path(self.fig_path, yrmondayhr)
+            self.fig_path.mkdir(parents=True, exist_ok=True)
 
         self.track_path.mkdir(parents=True, exist_ok=True)
 
@@ -1053,14 +1057,16 @@ class WPCMTD:
 
         #Fix an issue by deleting a folder created in METLoadEnsemble.setupData if no plotting is requested
         if self.plot_allhours == False and self.mtd_mode == 'Retro':
+            print("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
             os.system("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                 '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
 
         #Delete MTD output in specific situations
-        # if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
-        #     for model in range(len(MTDfile_new)):
-        #         print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
-        #         os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+        if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
+            for model in range(len(MTDfile_new)):
+                print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
+                os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
 
 
     def run_mtd(self):
@@ -1401,7 +1407,6 @@ class WPCMTD:
                     if self.snow_mask == False:
 
                         #Plot the smoothed ensemble probabilities with object centroids
-                        print("plotting")
                         mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
                             self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
             
