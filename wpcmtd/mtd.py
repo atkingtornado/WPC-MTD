@@ -54,7 +54,7 @@ class WPCMTD:
     acc_int:         ClassVar[list]              = []
     init_yrmondayhr: ClassVar[list]              = []
     reg_mask_file:   ClassVar[list]              = []
-    ops_check:       ClassVar[float]             = 60*60*0.0
+    ops_check:       ClassVar[float]             = 60*60*0.5
     start_hrs:       ClassVar[float]             = 0.0
 
 
@@ -1405,7 +1405,6 @@ class WPCMTD:
 
                 for subsets in range(0,len(self.domain_sub)): #Loop through domain subset specifications to plot specific regions
                     if self.snow_mask == False:
-
                         #Plot the smoothed ensemble probabilities with object centroids
                         mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
                             self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
