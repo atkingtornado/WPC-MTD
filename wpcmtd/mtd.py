@@ -12,6 +12,8 @@ from netCDF4 import Dataset
 from wpcmtd.utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig, load_data_str
 from wpcmtd.plot import mtd_plot_retro, mtd_plot_all_fcst, mtd_plot_tle_fcst, mtd_plot_all_snow_fcst
 
+os.environ["ECCODES_DEFINITION_PATH"] = "./local_defs/"
+
 @dataclasses.dataclass
 class WPCMTD:
     """

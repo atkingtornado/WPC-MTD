@@ -1,0 +1,7 @@
+## 15-minute Radar-Only QPE
+'mm' = {
+ discipline = 209 ;
+ parameterCategory = 6 ;
+ parameterNumber = 45 ;
+}
+
