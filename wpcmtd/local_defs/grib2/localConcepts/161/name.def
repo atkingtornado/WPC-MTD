@@ -1,6 +1,0 @@
-## 15-minute Radar-Only QPE
-'Radar precipitation accumulation 15-minute' = {
- discipline = 209 ;
- parameterCategory = 6 ;
- parameterNumber = 45 ;
-}

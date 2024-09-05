@@ -1070,17 +1070,17 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
         plt.show()
 
-        plt.savefig(FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+GRIB_PATH_DES+'_TOTENS_objshape_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
+        plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objshape_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
             '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
         
         #Update figure names to create animated figure
-        fig_name=np.append(fig_name,FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+GRIB_PATH_DES+'_TOTENS_objshape_byhour_'+ \
+        fig_name=np.append(fig_name,FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objshape_byhour_'+ \
             curdate_currn.strftime('%Y%m%d%H%M')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png')
             
         hr_count += 1
 
-    os.system('convert -delay 100 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+ \
+    os.system('convert -delay 100 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+ \
         GRIB_PATH_DES+'_TOTENS_objshape_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
  
     #############################################################################################
@@ -1194,17 +1194,17 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
         #plt.hold(True)
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
         plt.show()
-        plt.savefig(FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+GRIB_PATH_DES+'_fcst_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
+        plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_fcst_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
             '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
         
         #Update figure names to create animated figure
-        fig_name=np.append(fig_name,FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+GRIB_PATH_DES+'_fcst_precipAobjs_byhour_'+\
+        fig_name=np.append(fig_name,FIG_PATH_s+'/'+GRIB_PATH_DES+'_fcst_precipAobjs_byhour_'+\
             curdate_currn.strftime('%Y%m%d%H%M')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png')
 
         hr_count += 1
     #Create an animation from the figures previously saved
-    os.system('convert -delay 50 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+ \
+    os.system('convert -delay 50 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+ \
         GRIB_PATH_DES+'_fcst_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
 
     #############################################################################################
@@ -1318,17 +1318,17 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
         #plt.hold(True)
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
         plt.show()
-        plt.savefig(FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+GRIB_PATH_DES+'_obs_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
+        plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_obs_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
             '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
         
         #Update figure names to create animated figure
-        fig_name=np.append(fig_name,FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+GRIB_PATH_DES+'_obs_precipAobjs_byhour_'+ \
+        fig_name=np.append(fig_name,FIG_PATH_s+'/'+GRIB_PATH_DES+'_obs_precipAobjs_byhour_'+ \
             curdate_currn.strftime('%Y%m%d%H%M')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png')
 
         hr_count += 1
     #Create an animation from the figures previously saved
-    os.system('convert -delay 50 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+curdate_currn.strftime('%Y%m%d%H')+'/'+ \
+    os.system('convert -delay 50 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+ \
         GRIB_PATH_DES+'_obs_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
     
     for model in range(0,len(load_data_nc)):

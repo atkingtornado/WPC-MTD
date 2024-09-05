@@ -12,7 +12,10 @@ from netCDF4 import Dataset
 from wpcmtd.utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig, load_data_str
 from wpcmtd.plot import mtd_plot_retro, mtd_plot_all_fcst, mtd_plot_tle_fcst, mtd_plot_all_snow_fcst
 
-os.environ["ECCODES_DEFINITION_PATH"] = "./local_defs/"
+#os.environ["ECCODES_DEFINITION_PATH"] = "./local_defs/"
+
+os.environ["MET_GRIB_TABLES"] =  str(pathlib.Path(__file__).parent.resolve())+'/met_grib_tables/grib2_mrms.txt'
+
 
 @dataclasses.dataclass
 class WPCMTD:
@@ -251,14 +254,15 @@ class WPCMTD:
                 path.unlink()
 
         if self.mtd_mode == 'Retro':
-            self.fig_path = pathlib.Path(self.fig_path)
+            #self.fig_path = pathlib.Path(self.fig_path)
+            self.fig_path = pathlib.Path(self.fig_path, yrmondayhr)
             self.fig_path.mkdir(parents=True, exist_ok=True)
         else:
             self.fig_path = pathlib.Path(self.fig_path, yrmondayhr)
             self.fig_path.mkdir(parents=True, exist_ok=True)
 
         self.track_path.mkdir(parents=True, exist_ok=True)
-
+        
         #Load static data file and initialize needed variables for later
         f = Dataset(pathlib.Path(self.grib_path,'static','STATIC.nc'), "a", format="NETCDF4")
         lat=f.variables['lat'][:]
@@ -1061,8 +1065,8 @@ class WPCMTD:
         if self.plot_allhours == False and self.mtd_mode == 'Retro':
             print("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                 '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
-            os.system("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
-                '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
+           # os.system("rm -rf "+str(self.fig_path)+"/"+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+               # '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour))
 
         #Delete MTD output in specific situations
         if str(self.grib_path_des) == 'MTD_QPF_HRRRTLE_EXT_OPER': #Delete MTD output after bias lookup code runs
