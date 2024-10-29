@@ -18,6 +18,8 @@ import copy
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 import cartopy.feature as cf
 import cartopy.crs as ccrs
+import geojsoncontour
+import geojson
 mpl.use('Agg') #So plots can be saved in cron
 
 
@@ -1435,7 +1437,8 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
 #                leg_nam_bymod = np.append(leg_nam_bymod,leg_nam_bymod_default[bymod])
 #                leg_sym_bymod = np.append(leg_sym_bymod,'d')
     
-    leg_nam_byint  = ['90th Object Percentile >='+str(x)+"\"" for x in np.round(np.linspace(0,1*10*raw_thres,len(colorlist)),2)]
+    centroid_values = np.round(np.linspace(0,1*10*raw_thres,len(colorlist)),2)
+    leg_nam_byint  = ['90th Object Percentile >='+str(x)+"\"" for x in centroid_values]
     leg_nam_bytime = ['Hours '+str(hrs[i])+' - '+str(hrs[i+int(round(len(hrs)/len(colorlist)))]) \
         for i in range(0,len(hrs)-int(round(len(hrs)/len(colorlist))),int(round(len(hrs)/len(colorlist))+1))]
         
@@ -1512,11 +1515,11 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                 if len(simp_prop[model][4][ind]) > 2:
                     cs2= plt.plot(simp_prop[model][5][ind], simp_prop[model][4][ind], color='k', linewidth=linewidth, zorder=zorder,transform=ccrs.PlateCarree())
                     cs = plt.scatter(simp_prop[model][5][ind], simp_prop[model][4][ind], c = simp_prop[model][9][ind],marker=marker, \
-                        vmin=0, vmax=np.nanmax(values), s=markersize, linewidth=linewidth, cmap=my_cmap1, zorder=zorder, alpha=1, transform=ccrs.PlateCarree()) 
+                        vmin=0, vmax=np.nanmax(centroid_values), s=markersize, linewidth=linewidth, cmap=my_cmap1, zorder=zorder, alpha=1, transform=ccrs.PlateCarree()) 
                 else:
                     cs2= plt.plot(simp_prop[model][5][ind][0], simp_prop[model][4][ind][0], color=linecolor, linewidth=1, zorder=zorder,transform=ccrs.PlateCarree())
                     cs = plt.scatter(simp_prop[model][5][ind][0], simp_prop[model][4][ind][0], c = simp_prop[model][9][ind][0],marker=marker, \
-                        vmin=0, vmax=np.nanmax(values), s=markersize, linewidth=linewidth, cmap=my_cmap1, zorder=zorder, alpha=0.8, transform=ccrs.PlateCarree())
+                        vmin=0, vmax=np.nanmax(centroid_values), s=markersize, linewidth=linewidth, cmap=my_cmap1, zorder=zorder, alpha=0.8, transform=ccrs.PlateCarree())
                         
             #END model VS obs check
         #END through each track
@@ -1587,11 +1590,12 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
         transform=ax.transAxes, fontsize=12,verticalalignment='bottom', horizontalalignment='center', bbox=props)
     ax.text(0.5, 0.97, "Valid Time: "+curdate_start.strftime('%Y%m%d%H%M')+" - "+curdate_stop.strftime('%Y%m%d%H%M'),
         transform=ax.transAxes, fontsize=12,verticalalignment='top', horizontalalignment='center', bbox=props)
+
     kwargs = {"transform_first": True}
     cs = plt.contourf(lon, lat, gaussian_filter(ens_mean*100, sigma),   levels=values*100, extend='min', cmap=my_cmap2, antialiased=False, vmin=np.spacing(0.0),\
         vmax=np.nanmax(values*100), transform=ccrs.PlateCarree(),**kwargs)
     cb = plt.colorbar(cs,ax=ax)
-    
+
     #Outline the observation if it exists
     str_inc = [i for i in range(len(isolate_st4)) if isolate_st4[i] == 0]
     if sum(isolate_st4 == 0) > 0:
@@ -1641,6 +1645,8 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                     cs2= plt.plot(simp_prop[model][5][ind][0], simp_prop[model][4][ind][0], color='k', linewidth=linewidth, zorder=zorder, transform=ccrs.PlateCarree())
                     cs = plt.scatter(simp_prop[model][5][ind][0], simp_prop[model][4][ind][0], c = simp_prop[model][2][ind][0], \
                         marker=marker, vmin=0, vmax=hrs[-1], s=markersize, linewidth=0.25, cmap=my_cmap1_short, zorder=zorder, alpha=1, transform=ccrs.PlateCarree())
+
+                
         #END through each track
     #END through the models
 
@@ -1702,9 +1708,17 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
             transform=ax.transAxes, fontsize=12,verticalalignment='bottom', horizontalalignment='center', bbox=props)
         ax.text(0.5, 0.97, "Valid Time: "+curdate_curr.strftime('%Y%m%d%H%M')+" - "+'{0:.2f}'.format(pre_acc)+' Hour Accumulation ',
             transform=ax.transAxes, fontsize=12,verticalalignment='top', horizontalalignment='center', bbox=props)
-        kwargs = {"transform_first": True}
+        kwargs = {"transform_first": False}
         cs = plt.contourf(lon, lat, gaussian_filter(ens_mean*100, sigma),   levels=values*100, extend='min', cmap=my_cmap2, antialiased=False, vmin=np.spacing(0.0),\
             vmax=np.nanmax(values*100), transform=ccrs.PlateCarree(),**kwargs)
+
+        if "_ALL" in GRIB_PATH_DES:
+	        geojson_filename = FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
+	            '_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'_shadedprobs.geojson'
+	        geojsoncontour.contourf_to_geojson(
+	            contourf=cs,
+	            geojson_filepath=geojson_filename
+	        )
  
         #Outline the observation if it exists
         str_inc = [i for i in range(len(isolate_st4)) if isolate_st4[i] == 0]
@@ -1715,6 +1729,7 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
             
         #Create two plots: 1) includes intensity (color) and member (symbol) at time of concern
         #                  2) total track of object throughout time
+        geojson_features = []
         for model in range(len(load_data_nc)):
       
             #Specify marker properly 
@@ -1750,7 +1765,7 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                         linewidth  = 0.5
                         markersize = 30
                         zorder     = 2
-            
+                                       
                     for tot_obj in elements: #Through each track
                         #Tracks for instantaneous time and total time
                         ind_snap = np.asarray(simp_prop[model][0] == tot_obj) & np.asarray(simp_prop[model][2] == hr_inc)
@@ -1760,26 +1775,77 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                             plt.plot(simp_prop[model][5][ind_snap], simp_prop[model][4][ind_snap], color=linecolor, linewidth=linewidth, zorder=zorder, \
                                 transform=ccrs.PlateCarree())
                             plt.scatter(simp_prop[model][5][ind_snap], simp_prop[model][4][ind_snap], c = simp_prop[model][9][ind_snap], \
-                                marker=marker, vmin=0, vmax=np.nanmax(values), s=markersize, linewidth=0.25, cmap=my_cmap1, zorder=zorder, \
-                                alpha=1, transform=ccrs.PlateCarree())  
+                                marker=marker, vmin=0, vmax=np.nanmax(centroid_values), s=markersize, linewidth=0.25, cmap=my_cmap1, zorder=zorder, \
+                                alpha=1, transform=ccrs.PlateCarree())
+
+                            geojson_point = geojson.Point([float(simp_prop[model][5][ind_snap]), float(simp_prop[model][4][ind_snap])])
+                            geojson_properties = {
+                            	"model": load_data_nc[model].replace('.nc',''), 
+                            	"object_id": simp_prop[model][0][ind_snap],
+                            	"object_cat:": simp_prop[model][1][ind_snap],
+                            	"time_index:": simp_prop[model][2][ind_snap],
+                            	"area": simp_prop[model][3][ind_snap],
+                            	"axis_ang": simp_prop[model][6][ind_snap],
+                            	"10th_percentile": simp_prop[model][7][ind_snap],
+                            	"50th_percentile": simp_prop[model][8][ind_snap],
+                            	"90th_percentile": simp_prop[model][9][ind_snap],
+                            }
+                            geojson_feature = geojson.Feature(geometry=geojson_point, properties=geojson_properties)
+                            geojson_features.append(geojson_feature)
+
                         else:
                             plt.plot(simp_prop[model][5][ind_snap][0], simp_prop[model][4][ind_snap][0], color=linecolor, linewidth=linewidth, zorder=zorder, \
                                 transform=ccrs.PlateCarree())
                             plt.scatter(simp_prop[model][5][ind_snap][0], simp_prop[model][4][ind_snap][0], c = simp_prop[model][9][ind_snap][0], \
-                                marker=marker, vmin=0, vmax=np.nanmax(values), s=markersize, linewidth=0.25, cmap=my_cmap1, zorder=zorder, alpha=0.8, \
+                                marker=marker, vmin=0, vmax=np.nanmax(centroid_values), s=markersize, linewidth=0.25, cmap=my_cmap1, zorder=zorder, alpha=0.8, \
                                 transform=ccrs.PlateCarree())
+
+                            geojson_point = geojson.Point([float(simp_prop[model][5][ind_snap][0]), float(simp_prop[model][4][ind_snap][0])])
+                            geojson_properties = {
+                            	"model": load_data_nc[model].replace('.nc',''), 
+                            	"object_id": simp_prop[model][0][ind_snap][0],
+                            	"object_cat:": simp_prop[model][1][ind_snap][0],
+                            	"time_index:": simp_prop[model][2][ind_snap][0],
+                            	"area": simp_prop[model][3][ind_snap][0],
+                            	"axis_ang": simp_prop[model][6][ind_snap][0],
+                            	"10th_percentile": simp_prop[model][7][ind_snap][0],
+                            	"50th_percentile": simp_prop[model][8][ind_snap][0],
+                            	"90th_percentile": simp_prop[model][9][ind_snap][0],
+                            }
+                            geojson_feature = geojson.Feature(geometry=geojson_point, properties=geojson_properties)
+                            geojson_features.append(geojson_feature)
+
                                 
                         if len(simp_prop[model][5][ind_all]) > 2:
                             plt.plot(simp_prop[model][5][ind_all], simp_prop[model][4][ind_all], color=linecolor, linewidth=linewidth-0.25, zorder=zorder, \
                                 transform=ccrs.PlateCarree())
+
+                            geojson_line = geojson.LineString([[float(lon), float(lat)] for lon, lat in zip(simp_prop[model][5][ind_all],simp_prop[model][4][ind_all])])
+                            geojson_feature = geojson.Feature(geometry=geojson_line, properties={"model": load_data_nc[model].replace('.nc','')})
+                            geojson_features.append(geojson_feature)
+
                         else:
                             plt.plot(simp_prop[model][5][ind_all][0], simp_prop[model][4][ind_all][0], color=linecolor, linewidth=linewidth-0.25, zorder=zorder, \
                                 transform=ccrs.PlateCarree())
-                                            
-                    #END check for hourly data existing
-                #END model VS obs check
-            #END through each track
+
+                            geojson_line = geojson.LineString([[float(simp_prop[model][5][ind_all][0]), float(simp_prop[model][4][ind_all][0])]])
+                            geojson_feature = geojson.Feature(geometry=geojson_line, properties={"model": load_data_nc[model].replace('.nc','')})
+                            geojson_features.append(geojson_feature)
+                                    
+                    #END through each track 
+                #END check for hourly data existing
+            #END model VS obs check
         #END through the models
+
+        #Create geojson feature collection from array of track linestring features & save to file
+        if "_ALL" in GRIB_PATH_DES:
+        	print(geojson_features)
+	        geojson_feature_collection = geojson.FeatureCollection(geojson_features)
+	        geojson_filename = FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
+	                '_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'_tracks.geojson'
+	        geojson_object = geojson.dumps(geojson_feature_collection)
+	        with open(geojson_filename, "w") as outfile:
+	                outfile.write(geojson_object)
     
         #Pass line instances to a legend to create centroid maximum legend by color
         line_label=[]
@@ -1925,7 +1991,8 @@ def mtd_plot_tle_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
     my_cmap2 = LinearSegmentedColormap.from_list('name', colors)
     my_cmap2.set_under('white')
 
-    leg_nam_byint  = ['90th Object Percentile >='+str(x)+"\"" for x in np.round(np.linspace(0,1*10*raw_thres,len(colorlist)),2)]
+    centroid_values = np.round(np.linspace(0,1*10*raw_thres,len(colorlist)),2)
+    leg_nam_byint  = ['90th Object Percentile >='+str(x)+"\"" for x in centroid_values]
     if sum(isolate_st4 == 0) > 0: #If obs exists, change legend
         leg_sym_bymem  = ['s','d','o','*','^','1','2','3','4']
         mod_inc = 1 #When plotting marker, add 1 for models if st4 exists
@@ -2034,12 +2101,12 @@ def mtd_plot_tle_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                         if len(simp_prop[obs_inc][5][obj]) > 2:
                             plt.plot(simp_prop[obs_inc][5][obj], simp_prop[obs_inc][4][obj], color='b', linewidth=1.5, zorder = 3, transform=ccrs.PlateCarree())
                             plt.scatter(simp_prop[obs_inc][5][obj], simp_prop[obs_inc][4][obj], c = simp_prop[obs_inc][9][obj], \
-                                marker=leg_sym_bymem[obs_inc], vmin=0, vmax=np.nanmax(values), s=60, linewidth=0.25, cmap=my_cmap1, zorder = 3, alpha = 0.8, \
+                                marker=leg_sym_bymem[obs_inc], vmin=0, vmax=np.nanmax(centroid_values), s=60, linewidth=0.25, cmap=my_cmap1, zorder = 3, alpha = 0.8, \
                                 transform=ccrs.PlateCarree())
                         else:
                             plt.plot(simp_prop[obs_inc][5][obj][0], simp_prop[obs_inc][4][obj][0], color='b', linewidth=1.5, zorder = 3, transform=ccrs.PlateCarree())
                             plt.scatter(simp_prop[obs_inc][5][obj][0], simp_prop[obs_inc][4][obj][0], c = simp_prop[obs_inc][9][obj][0], \
-                                marker=leg_sym_bymem[obs_inc], vmin=0, vmax=np.nanmax(values), s=60, linewidth=0.25, cmap=my_cmap1, zorder = 3, alpha = 0.8, \
+                                marker=leg_sym_bymem[obs_inc], vmin=0, vmax=np.nanmax(centroid_values), s=60, linewidth=0.25, cmap=my_cmap1, zorder = 3, alpha = 0.8, \
                                 transform=ccrs.PlateCarree())
                     leg_sym_use = np.append(leg_sym_use,leg_sym_bymem[obs_inc])
 
@@ -2058,12 +2125,12 @@ def mtd_plot_tle_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                         if len(simp_prop_k[model][5][obj]) > 2:
                             plt.plot(simp_prop_k[model][5][obj], simp_prop_k[model][4][obj], color='k', linewidth=0.5, zorder = 2, transform=ccrs.PlateCarree())
                             plt.scatter(simp_prop_k[model][5][obj], simp_prop_k[model][4][obj], c = simp_prop_k[model][9][obj], \
-                                marker=leg_sym_bymem[marker_inc[model]+mod_inc], vmin=0, vmax=np.nanmax(values), s=30, linewidth=0.25, cmap=my_cmap1, zorder = 2, \
+                                marker=leg_sym_bymem[marker_inc[model]+mod_inc], vmin=0, vmax=np.nanmax(centroid_values), s=30, linewidth=0.25, cmap=my_cmap1, zorder = 2, \
                                 alpha = 0.8, transform=ccrs.PlateCarree())
                         else:
                             plt.plot(simp_prop_k[model][5][obj][0], simp_prop_k[model][4][obj][0], color='k', linewidth=0.5, zorder = 2, transform=ccrs.PlateCarree())
                             plt.scatter(simp_prop_k[model][5][obj][0], simp_prop_k[model][4][obj][0], c = simp_prop_k[model][9][obj][0], \
-                                marker=leg_sym_bymem[marker_inc[model]+mod_inc], vmin=0, vmax=np.nanmax(values), s=30, linewidth=0.25, cmap=my_cmap1, zorder = 2, \
+                                marker=leg_sym_bymem[marker_inc[model]+mod_inc], vmin=0, vmax=np.nanmax(centroid_values), s=30, linewidth=0.25, cmap=my_cmap1, zorder = 2, \
                                 alpha = 0.8, transform=ccrs.PlateCarree())
                 leg_sym_use = np.append(leg_sym_use,leg_sym_bymem[marker_inc[model]+mod_inc])
             #END through model to create scatterplot
@@ -2204,7 +2271,8 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
         leg_nam_bymod = []
         leg_sym_bymod = ['d']
     
-    leg_nam_byint  = ['>='+str(x)+"\"" for x in np.round(np.linspace(0,1*10*raw_thres,len(colorlist)),2)]
+    centroid_values = np.round(np.linspace(0,1*10*raw_thres,len(colorlist)),2)
+    leg_nam_byint  = ['>='+str(x)+"\"" for x in centroid_values]
     leg_nam_bytime = ['Hours '+str(hrs[i])+' - '+str(hrs[i+int(round(len(hrs)/len(colorlist)))]) \
         for i in range(0,len(hrs)-int(round(len(hrs)/len(colorlist))),int(round(len(hrs)/len(colorlist))+1))]
     
