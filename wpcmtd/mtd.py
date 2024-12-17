@@ -990,48 +990,50 @@ class WPCMTD:
         -------
             None
         """
-        if self.mtd_mode == 'Operational':
-            if self.snow_mask == False:
-                if 'HRRRv415min' in ''.join(self.load_data):
+        for subsets in range(0,len(self.domain_sub)): #Loop through domain subset specifications to plot specific regions
+            if self.mtd_mode == 'Operational':
+                if self.snow_mask == False:
+                    if 'HRRRv415min' in ''.join(self.load_data):
 
-                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/HRRRSubHr/images/'+ \
-                        self.domain_sub[1:]+'/')
-                    os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/'+self.domain_sub[1:]+'/'+ \
-                        ' --recursive --exclude "*" --include "*'+str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.*"')
+                        os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[subsets][1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/HRRRSubHr/images/'+ \
+                            self.domain_sub[subsets][1:]+'/')
+                        os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/'+self.domain_sub[subsets][1:]+'/'+ \
+                            ' --recursive --exclude "*" --include "*'+str(self.grib_path_des)+'*'+self.domain_sub[subsets][1:]+'*.*"')
 
-                    #Clear files older than two days from wpcrzdm to save memory
-                    curdate_old  = curdate - datetime.timedelta(days=2)
+                        #Clear files older than two days from wpcrzdm to save memory
+                        curdate_old  = curdate - datetime.timedelta(days=2)
+                        yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
+                        os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/HRRRSubHr/images/"+self.domain_sub[subsets][1:]+"/*"+str(self.grib_path_des)+"*"+ \
+                            yrmonday_old+"*.*'")
+                        os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/'+self.domain_sub[subsets][1:]+'/ --recursive --exclude "*" --include "*'+\
+                            yrmonday_old+'*.*"')
+
+                    else:
+
+                        print(self.domain_sub[subsets][1:])
+                        os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[subsets][1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd/images/')
+                        os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+ \
+                            str(self.grib_path_des)+'*'+self.domain_sub[subsets][1:]+'*.*"')
+
+                        #Clear files older than two days from wpcrzdm to save memory
+                        curdate_old  = curdate - datetime.timedelta(days=2)
+                        yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
+                        os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/verification/mtd/images/*"+str(self.grib_path_des)+"*"+yrmonday_old+"*.*'")
+                        os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+\
+                            yrmonday_old+'*.*"')
+
+                elif snow_mask == True:
+
+                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+domain_sub[subsets][1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/')
+                    os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+ \
+                        str(self.grib_path_des)+'*'+domain_sub[subsets][1:]+'*.*"')
+
+                    #Clear files older than 5 days from wpcrzdm to save memory
+                    curdate_old  = curdate - datetime.timedelta(days=5)
                     yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
-                    os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/HRRRSubHr/images/"+self.domain_sub[1:]+"/*"+str(self.grib_path_des)+"*"+ \
-                        yrmonday_old+"*.*'")
-                    os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/'+self.domain_sub[1:]+'/ --recursive --exclude "*" --include "*'+\
+                    os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/snowbands/images/*"+str(self.grib_path_des)+"*"+yrmonday_old+"*.*'")
+                    os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+\
                         yrmonday_old+'*.*"')
-
-                else:
-
-                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd/images/')
-                    os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+ \
-                        str(self.grib_path_des)+'*'+self.domain_sub[1:]+'*.*"')
-
-                    #Clear files older than two days from wpcrzdm to save memory
-                    curdate_old  = curdate - datetime.timedelta(days=2)
-                    yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
-                    os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/verification/mtd/images/*"+str(self.grib_path_des)+"*"+yrmonday_old+"*.*'")
-                    os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+\
-                        yrmonday_old+'*.*"')
-
-            elif snow_mask == True:
-
-                os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+domain_sub[1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/')
-                os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+ \
-                    str(self.grib_path_des)+'*'+domain_sub[1:]+'*.*"')
-
-                #Clear files older than 5 days from wpcrzdm to save memory
-                curdate_old  = curdate - datetime.timedelta(days=5)
-                yrmonday_old = '{:04d}'.format(curdate_old.year)+'{:02d}'.format(curdate_old.month)+'{:02d}'.format(curdate_old.day)
-                os.system("ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/snowbands/images/*"+str(self.grib_path_des)+"*"+yrmonday_old+"*.*'")
-                os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+\
-                    yrmonday_old+'*.*"')
 
     def sweep(self,curr_date,MTDfile_new): 
         """
@@ -1418,9 +1420,9 @@ class WPCMTD:
                         mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
                             self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop)
                     
-                    if (self.transfer_to_prod):
-                        #Copy over relevant images to proper websites 
-                        self.port_data_FIGS(curr_date)
+                if (self.transfer_to_prod):
+                    #Copy over relevant images to proper websites 
+                    self.port_data_FIGS(curr_date)
                     
 
             del simp_prop 

@@ -1770,6 +1770,8 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                         #Tracks for instantaneous time and total time
                         ind_snap = np.asarray(simp_prop[model][0] == tot_obj) & np.asarray(simp_prop[model][2] == hr_inc)
                         ind_all  = np.asarray(simp_prop[model][0] == tot_obj)
+
+                        print("VMAX:", np.nanmax(centroid_values))
                         
                         if len(simp_prop[model][5][ind_snap]) > 2:
                             plt.plot(simp_prop[model][5][ind_snap], simp_prop[model][4][ind_snap], color=linecolor, linewidth=linewidth, zorder=zorder, \
