@@ -5,6 +5,8 @@ from typing import ClassVar
 import pathlib
 import datetime
 import numpy as np
+from scipy.ndimage.filters import gaussian_filter
+import xarray as xr
 import time
 from netCDF4 import Dataset
 #from .utils import adjust_date_range, gen_mtdconfig_15m, gen_mtdconfig, load_data_str
@@ -46,6 +48,7 @@ class WPCMTD:
     domain_sub:     [str]             # Sub-domain names for plotting
     latlon_sub:     [[int]]           # Sub-domain lat/lon sizes for plotting
     transfer_to_prod: bool            # Flag to toggle data/plot transfer to prod servers
+    save_probs_to_file: bool          # Flag to toggle saving probability fields to a netcdf file
 
     grib_path_temp:  ClassVar[pathlib.PosixPath] = None
     lat:             ClassVar[float]             = None
@@ -327,6 +330,7 @@ class WPCMTD:
         pcp_combine_str_end = yrmonday_ahead+'_'+hrmin_ahead+'00 '
 
         #Use MET pcp_combine to sum, except for 1 hr acc from NAM, which contains either 1, 2, 3 hr acc. precip
+        prev_dir = os.getcwd()
         os.chdir(self.grib_path_temp)
         if 'HIRESNAM' in self.load_data[model] and self.pre_acc == 1:
             if ((fcst_hr - 1) % 3) == 0:   #Every 3rd hour contains 1 hr acc. precip
@@ -386,6 +390,7 @@ class WPCMTD:
             output = os.system(str(self.met_path)+'/pcp_combine -sum  '+pcp_combine_str_beg+' '+APCP_str_beg[1::]+' '+pcp_combine_str_end+' '+ \
                 APCP_str_end[1::]+' '+str(self.grib_path_temp)+'/'+load_data_nc+' -name "'+APCP_str_end+'"')
         
+        os.chdir(prev_dir)
         # time.sleep(2)
 
     def apply_snow_mask(self, model, data_name_nc, data_name_grib, data_name_grib_prev, \
@@ -1070,6 +1075,102 @@ class WPCMTD:
                 print('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
                 os.system('rm -rf '+str(self.track_path)+'/'+MTDfile_new[model][0:21]+'*')
 
+    
+    def save_probs(self, curr_date, load_data_nc, simp_bin, data_success): 
+        """
+        This function calculates and saves probability fields for each forecast hour 
+
+        Parameters
+        ----------
+        curr_date : datetime.datetime object
+            datetime element for current date
+        load_data_nc : string 
+            netCDF string of data to be loaded
+        simp_bin : [float]
+            grid of simple object ID information
+        data_success : int
+            file successfully loaded if equals zero
+        Returns
+        -------
+            None
+        """
+
+        #Find and isolate ST4 data
+        isolate_st4=[]
+        for i in range(0,len(load_data_nc),1):
+            if 'ST4' in load_data_nc[i]:
+                isolate_st4 = np.append(isolate_st4,False)
+            else:
+                isolate_st4 = np.append(isolate_st4,True)
+        isolate_st4       = isolate_st4 == 1
+
+        #Currently this function only requires a logical matrix
+        simp_bin = simp_bin > 0
+        
+        #Add NaNs to missing data in binary matrix. Convert to float
+        simp_bin=simp_bin.astype(float)
+        NaN_loc = (data_success == 1).astype(float)
+        NaN_loc[NaN_loc == 1] = np.NaN
+        
+        for j in range(simp_bin.shape[0]):
+            for i in range(simp_bin.shape[1]):
+                simp_bin[j,i,:,:] = simp_bin[j,i,:,:] + NaN_loc
+                
+        #Compute raw ensemble mean probability, set 100% to 99% to preserve colorbar
+        ens_mean = np.nanmax(np.nanmean(simp_bin[:,:,:,isolate_st4], axis = 3) , axis = 2)
+        ens_mean[ens_mean > 0.95] = 0.95
+
+        #Compute the proper forecast hour strings
+        curdate_currn = curr_date + datetime.timedelta(hours=0)
+        curdate_start = curr_date + datetime.timedelta(hours=self.hrs[0])
+        curdate_stop  = curr_date + datetime.timedelta(hours=self.hrs[-1])
+
+        # Initialize list to store datasets
+        ds_list = []
+        fcsthr_values = []
+
+        hr_count = 0
+        for hr_inc in self.hrs:
+            # Determine time stamp for hour
+            curdate_curr = curdate_currn + datetime.timedelta(hours=hr_inc)
+
+            # Determine hour matrix that isolates models existing for that hour
+            isolate_hr = np.array(isolate_st4 == 1) & np.array(data_success[hr_count, :] == 0)
+
+            ens_mean = np.nanmean(simp_bin[:, :, hr_count, isolate_hr == 1], axis=2)
+            ens_mean[ens_mean > 0.95] = 0.95
+
+            # Save out object probability contours
+            ny, nx = self.lat.shape
+            ds = xr.Dataset(
+                {
+                    "object_probability": (["fcsthr", "y", "x"], [gaussian_filter(ens_mean * 100, self.sigma)]),  
+                },
+                coords={
+                    "fcsthr": [hr_inc],  # Forecast hour as a coordinate
+                    "y": np.arange(ny),  
+                    "x": np.arange(nx),  
+                    "lat": (["y", "x"], self.lat),  
+                    "lon": (["y", "x"], self.lon)   
+                }
+            )
+
+            ds_list.append(ds)
+            fcsthr_values.append(hr_inc)
+
+            hr_count += 1  # Increment counter
+
+        # Combine all forecast hours into a single dataset along the "fcsthr" dimension
+        ds_combined = xr.concat(ds_list, dim="fcsthr")
+
+        # Define the output filename
+        output_filename = f"{os.getcwd()}/{self.grib_path_des}_ALL_TOTENS_objprob_byhour_{curdate_currn.strftime('%Y%m%d%H')}_p{self.pre_acc:.2f}_t{self.thresh}_probs.nc"
+        print("Saving probs file to:")
+        print(output_filename)
+        # Save to a single NetCDF file
+        ds_combined.to_netcdf(output_filename)
+
+        # return ens_mean
 
     def run_mtd(self):
         """
@@ -1404,6 +1505,8 @@ class WPCMTD:
                 #Save data for FF site
                 # METLoadEnsemble.port_data_FF(TRACK_PATH,GRIB_PATH_DES,datetime_curdate,start_hrs,end_fcst_hrs,hrs_all,pre_acc,thres,sigma,\
                 #     load_model,simp_bin,simp_prop,lat_t,lon_t,snow_mask)
+                if self.save_probs_to_file:
+                    self.save_probs(curr_date, load_data_nc, simp_bin, data_success)
 
                 for subsets in range(0,len(self.domain_sub)): #Loop through domain subset specifications to plot specific regions
                     if self.snow_mask == False:

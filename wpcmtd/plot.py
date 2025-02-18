@@ -20,6 +20,7 @@ import cartopy.feature as cf
 import cartopy.crs as ccrs
 import geojsoncontour
 import geojson
+import xarray as xr
 mpl.use('Agg') #So plots can be saved in cron
 
 
