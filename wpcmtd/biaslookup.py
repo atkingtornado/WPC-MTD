@@ -812,3 +812,6 @@ class WPCMTDBiasLookup(WPCMTD):
             else:
                 mtd_plot_retro_disp_vect(str(self.grib_path_des)+self.domain_sub[subsets],str(self.fig_path),self.latlon_sub[subsets],\
                     self.pre_acc,self.hrs,self.thresh,self.end_date, data_success,load_model_nc,self.lat,self.lon,simp_bin,simp_prop,pair_diff,self.sigma)
+                    #Delete any files that are no longer needed
+        
+        self.sweep(self.end_date, MTDfile_new)
