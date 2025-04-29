@@ -98,6 +98,10 @@ class WPCMTD:
         if ('NEWSe' in ''.join(self.load_model) or 'MRMS' in self.load_qpe) and self.pre_acc > 1:
             raise ValueError('NEWSe or MRMS data can only Have a precipitation accumulation interval of 1 hour or less')
 
+        #Append SPT directory to track_path if snow_mask == True to prevent track files getting overwritten
+        if self.snow_mask:
+            self.track_path = self.track_path / "SPT"
+
 
     @property
     def load_data(self):
@@ -955,12 +959,13 @@ class WPCMTD:
         HRRR_check  = ['HRRR' in i for i in self.load_data]*1
 
         #Move the original track text file from the temp directory to the track directory for mtd_biaslookup_HRRRto48h.py
-        if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1 and self.snow_mask == False) or (self.mtd_mode == 'Both'):
+        if (self.mtd_mode == 'Operational' and np.nanmean(HRRR_check) == 1) or (self.mtd_mode == 'Both'): # and self.snow_mask == False
             for model in range(len(self.load_data)):
                 track_save_path = pathlib.Path(self.track_path,self.init_yrmondayhr[model][:4],self.init_yrmondayhr[model][:-2])
                 track_save_path.mkdir(parents=True, exist_ok=True)
                 track_save_path = str(track_save_path)
 
+                print("MOVING TRACK FILES TO ", track_save_path)
                 os.system('mv '+str(self.grib_path_temp)+'/'+MTDfile_new[model]+'* '+track_save_path)
 
         if self.mtd_mode == 'Retro':
@@ -969,6 +974,7 @@ class WPCMTD:
             track_save_path.mkdir(parents=True, exist_ok=True)
             track_save_path = str(track_save_path)
 
+            print("TRACK SAVING:",track_save_path)
             #Save the simple and paired model/obs track files specifying simp/pair, start/end time, hour acc. interval, and threshold
             if (np.sum(hour_success) > 0) and (self.mtd_mode == 'Retro') and (self.load_qpe[0] in self.load_data[1]):
                 np.savez(track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
@@ -979,6 +985,9 @@ class WPCMTD:
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_pair_prop'+'_s'+str(int(self.start_hrs))+\
                     '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh),pair_prop_k = pair_prop[0],data_exist = data_exist)
 
+                print("TRACK GZIP:",track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
+                    '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
+                    '_e'+str(int(self.start_hrs+self.end_fcst_hrs))+'_h'+'{0:.2f}'.format(self.pre_acc)+'_t'+str(self.thresh)+'.npz')
                 #Gzip the files
                 output = os.system('gzip '+track_save_path+'/'+self.grib_path_des+mem[0]+'_'+'{:04d}'.format(curr_date.year)+'{:02d}'.format(curr_date.month)+ \
                     '{:02d}'.format(curr_date.day)+'{:02d}'.format(curr_date.hour)+'_simp_prop'+'_s'+str(int(self.start_hrs))+\
@@ -1504,34 +1513,35 @@ class WPCMTD:
                 del obs_p
 
             #Create npz files for retro runs with model/analysis
+            print("PORT DATA FILES")
             self.port_data_FILES(curr_date,hour_success,MTDfile_new,simp_prop,pair_prop,data_exist,mem)
 
-            if self.mtd_mode == 'Operational':#If in operational mode, create plots
+            # if self.mtd_mode == 'Operational':#If in operational mode, create plots
 
-                #Save data for FF site
-                # METLoadEnsemble.port_data_FF(TRACK_PATH,GRIB_PATH_DES,datetime_curdate,start_hrs,end_fcst_hrs,hrs_all,pre_acc,thres,sigma,\
-                #     load_model,simp_bin,simp_prop,lat_t,lon_t,snow_mask)
-                if self.save_probs_to_file:
-                    self.save_probs(curr_date, load_data_nc, simp_bin, data_success)
+            #     #Save data for FF site
+            #     # METLoadEnsemble.port_data_FF(TRACK_PATH,GRIB_PATH_DES,datetime_curdate,start_hrs,end_fcst_hrs,hrs_all,pre_acc,thres,sigma,\
+            #     #     load_model,simp_bin,simp_prop,lat_t,lon_t,snow_mask)
+            #     if self.save_probs_to_file:
+            #         self.save_probs(curr_date, load_data_nc, simp_bin, data_success)
 
-                for subsets in range(0,len(self.domain_sub)): #Loop through domain subset specifications to plot specific regions
-                    if self.snow_mask == False:
-                        #Plot the smoothed ensemble probabilities with object centroids
-                        mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                            self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
+            #     for subsets in range(0,len(self.domain_sub)): #Loop through domain subset specifications to plot specific regions
+            #         if self.snow_mask == False:
+            #             #Plot the smoothed ensemble probabilities with object centroids
+            #             mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+            #                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
             
-                        #Plot the objects for each TLE
-                        mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                            self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
+            #             #Plot the objects for each TLE
+            #             mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+            #                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
 
-                    elif self.snow_mask == True:        
-                        #Plot the smoothed ensemble probabilities with object centroids
-                        mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                            self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop)
+            #         elif self.snow_mask == True:        
+            #             #Plot the smoothed ensemble probabilities with object centroids
+            #             mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+            #                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop)
                     
-                if (self.transfer_to_prod):
-                    #Copy over relevant images to proper websites 
-                    self.port_data_FIGS(curr_date)
+            #     if (self.transfer_to_prod):
+            #         #Copy over relevant images to proper websites 
+            #         self.port_data_FIGS(curr_date)
                     
 
             del simp_prop 
