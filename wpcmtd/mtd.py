@@ -1042,7 +1042,7 @@ class WPCMTD:
                         os.system('aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude "*" --include "*'+\
                             yrmonday_old+'*.*"')
 
-                elif snow_mask == True:
+                elif self.snow_mask == True:
 
                     os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+domain_sub[subsets][1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/')
                     os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+ \
