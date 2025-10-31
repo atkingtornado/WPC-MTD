@@ -1044,9 +1044,9 @@ class WPCMTD:
 
                 elif self.snow_mask == True:
 
-                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+domain_sub[subsets][1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/')
+                    os.system('scp '+str(self.fig_path)+'/'+str(self.grib_path_des)+'*'+self.domain_sub[subsets][1:]+'*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/')
                     os.system('aws s3 cp '+str(self.fig_path)+'/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude "*" --include "*'+ \
-                        str(self.grib_path_des)+'*'+domain_sub[subsets][1:]+'*.*"')
+                        str(self.grib_path_des)+'*'+self.domain_sub[subsets][1:]+'*.*"')
 
                     #Clear files older than 5 days from wpcrzdm to save memory
                     curdate_old  = curdate - datetime.timedelta(days=5)
