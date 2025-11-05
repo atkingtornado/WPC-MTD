@@ -381,7 +381,7 @@ def load_data_str(grib_path, load_data, init_yrmondayhr, acc_int, fcst_hr_str, f
         acc_int_str = '{:02d}'.format(int(acc_int))
         newtime= datetime.datetime(int(init_yrmondayhr[0:4]),int(init_yrmondayhr[4:6]),int(init_yrmondayhr[6:8]))+ \
             datetime.timedelta(hours=int(fcst_hr_str)+int(init_yrmondayhr[-2:]))
-        data_str = [grib_path+'/ST4/'+newtime.strftime('%Y%m%d')+'/ST4.'+newtime.strftime('%Y%m%d')+ \
+        data_str = [grib_path+'/ST4/'+newtime.strftime('%Y%m')+'/ST4.'+newtime.strftime('%Y%m%d')+ \
             newtime.strftime('%H')+'.'+acc_int_str+'h']
     elif data_default[1] in load_data[:-2]: #Observation/analysis for MRMS 2-min data
         #MRMS is treated a bit differently, since the analysis time changes, hence the date and folder
