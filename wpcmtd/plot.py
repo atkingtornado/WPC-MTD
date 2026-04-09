@@ -363,9 +363,12 @@ def mtd_plot_retro_disp_vect(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,th
     #Create an animation from the figures previously saved and create a non date specific file (website thumbnail)
     os.system('convert -delay 100 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+ \
         curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif')
-    shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+curdate_currn.strftime('%Y%m%d%H')+\
-        '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+\
-        'p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif')
+    try:
+        shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+curdate_currn.strftime('%Y%m%d%H')+\
+            '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+\
+            'p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif')
+    except FileNotFoundError as e:
+        print(f"WARNING: retroplot3 GIF thumbnail copy failed: {e}")
     # os.system('scp '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif '+\
     #     'hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd_exp/images')
     # os.system('aws s3 cp '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif'+\
@@ -1881,9 +1884,12 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
         curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
 
     #Copy to a non-date specific name for website dynamic thumbnail
-    shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
-        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_p'+\
-        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
+    try:
+        shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
+            '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_p'+\
+            '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
+    except FileNotFoundError as e:
+        print(f"WARNING: objprob_byhour GIF thumbnail copy failed: {e}")
 
     #Convert data from fraction of an hour back to increments
     if 'NEWSe5min' in ''.join(load_data_nc) or 'HRRRv415min' in ''.join(load_data_nc):
@@ -2382,11 +2388,14 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
         curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
 
     #Copy to a non-date specific name for website dynamic thumbnail
-    shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
-        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_p'+\
-        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
- 
-    #Convert data from fraction of an hour back to increments 
+    try:
+        shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
+            '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_p'+\
+            '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
+    except FileNotFoundError as e:
+        print(f"WARNING: snowobj_byhour GIF thumbnail copy failed: {e}")
+
+    #Convert data from fraction of an hour back to increments
     if 'NEWSe5min' in ''.join(load_data_nc) or 'HRRRv415min' in ''.join(load_data_nc):
         for model in range(0,len(load_data_nc)):
             simp_prop[model][2] = (simp_prop[model][2] - 0.25) * 4

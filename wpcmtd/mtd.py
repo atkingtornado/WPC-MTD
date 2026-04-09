@@ -530,7 +530,10 @@ class WPCMTD:
                 except FileExistsError:
                     pass
 
-                shutil.copy2(mask_file_in, mask_file_in_prev)
+                try:
+                    shutil.copy2(mask_file_in, mask_file_in_prev)
+                except FileNotFoundError as e:
+                    print(f"WARNING: snow_mask copy failed (missing file): {e}")
             elif 'ST4' in self.load_data[model]:                             #ST4 being loaded now
                 mask_file_in      = str(self.grib_path_temp)+'_2/'+data_name_grib_prev[fcst_hr_count]
                 mask_file_ou      = str(self.grib_path_temp)+ '/'+data_name_grib_prev[fcst_hr_count]+'.nc'
@@ -551,13 +554,19 @@ class WPCMTD:
                     '_2 -type data -input_field \'name="'+APCP_str_end+ \
                     '"; level="(*,*)";\' -mask_field \'name="'+APCP_str_end+'"; level="(*,*)";\' -thresh '+masking_val+' -value 0 -name '+APCP_str_end)
             else:
-                shutil.copy2(mask_file_ou, mask_file_ou+'2')
+                try:
+                    shutil.copy2(mask_file_ou, mask_file_ou+'2')
+                except FileNotFoundError as e:
+                    print(f"WARNING: snow_mask regrid output missing: {e}")
                 #Mask out all non-snow data
                 _run_cmd(str(self.met_path)+'/gen_vx_mask '+data_name_nc[fcst_hr_count]+' '+mask_file_ou+'2 '+data_name_nc[fcst_hr_count]+ \
                     '_2 -type data -input_field \'name="'+APCP_str_end+ \
                     '"; level="(*,*)";\' -mask_field \'name="'+APCP_str_end+'"; level="(*,*)";\' -thresh '+masking_val+' -value 0 -name '+APCP_str_end)
             #Replace old file with properly masked file
-            shutil.move(data_name_nc[fcst_hr_count]+"_2", data_name_nc[fcst_hr_count])
+            try:
+                shutil.move(data_name_nc[fcst_hr_count]+"_2", data_name_nc[fcst_hr_count])
+            except FileNotFoundError as e:
+                print(f"WARNING: snow_mask result missing, skipping: {e}")
 
 
     def apply_reg_mask(self, model, data_name_nc, data_name_nc_prev, APCP_str_end, fcst_hr_count):
@@ -588,13 +597,19 @@ class WPCMTD:
                     _run_cmd(str(self.met_path)+'/gen_vx_mask -type poly '+data_name_nc_prev[fcst_hr_count]+' '+self.reg_mask_file+' '\
                         +data_name_nc_prev[fcst_hr_count]+'2 -complement -input_field \'name="'+APCP_str_end+'" ; level="(*,*)" ;\''\
                         +' -value -9999 -name '+APCP_str_end)
-                    shutil.move(data_name_nc_prev[fcst_hr_count]+'2', data_name_nc_prev[fcst_hr_count])
+                    try:
+                        shutil.move(data_name_nc_prev[fcst_hr_count]+'2', data_name_nc_prev[fcst_hr_count])
+                    except FileNotFoundError as e:
+                        print(f"WARNING: reg_mask model file missing: {e}")
 
                     #Mask the analysis
                     _run_cmd(str(self.met_path)+'/gen_vx_mask -type poly '+data_name_nc[fcst_hr_count]+' '+self.reg_mask_file+' '\
                         +data_name_nc[fcst_hr_count]+'2 -complement -input_field \'name="'+APCP_str_end+'" ; level="(*,*)" ;\''\
                         +' -value -9999 -name '+APCP_str_end)
-                    shutil.move(data_name_nc[fcst_hr_count]+'2', data_name_nc[fcst_hr_count])
+                    try:
+                        shutil.move(data_name_nc[fcst_hr_count]+'2', data_name_nc[fcst_hr_count])
+                    except FileNotFoundError as e:
+                        print(f"WARNING: reg_mask analysis file missing: {e}")
 
     def load_data_MTDV90(self, data_path, MTDfile_new, model):
         """
@@ -1418,8 +1433,8 @@ class WPCMTD:
                             try:
                                 with gzip_module.open(src_gz, 'rb') as f_in, open(dst_file, 'wb') as f_out:
                                     shutil.copyfileobj(f_in, f_out)
-                            except FileNotFoundError:
-                                pass  # matches original cp behavior (silent fail)
+                            except FileNotFoundError as e:
+                                print(f"WARNING: grib file not found, skipping: {e}")
                             perf.stop('file_copy')
                             sum_hr_count += 1
 
@@ -1465,7 +1480,10 @@ class WPCMTD:
 
                         #Rename netcdf file
                         data_name_nc = np.append(data_name_nc,str(self.grib_path_temp)+"/"+load_data_nc[model][0:-3]+"_f"+fcst_hr_str+fcst_min_str+".nc")
-                        shutil.move(str(self.grib_path_temp)+"/"+load_data_nc[model]+"2", data_name_nc[fcst_hr_count])
+                        try:
+                            shutil.move(str(self.grib_path_temp)+"/"+load_data_nc[model]+"2", data_name_nc[fcst_hr_count])
+                        except FileNotFoundError as e:
+                            print(f"WARNING: regrid output missing for fcst hr {fcst_hr}, model {model}: {e}")
 
                         #Construct an array of filenames in the previous model portion of the loop when in retro mode
                         if (self.mtd_mode == 'Retro') and (self.load_model[0] not in self.load_data[model]):
@@ -1557,10 +1575,16 @@ class WPCMTD:
                 #Rename cluster file and 2d text file (QPE is handled later)
                 if ((self.mtd_mode == 'Retro' and self.load_qpe[0] in self.load_data[model]) or (self.mtd_mode == 'Operational')):
                    
-                    shutil.move(str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_obj.nc',
-                               str(self.grib_path_temp)+'/'+MTDfile_new[model]+'_obj.nc')
-                    shutil.move(str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_2d.txt',
-                               str(self.grib_path_temp)+'/'+MTDfile_new[model]+'_2d.txt')
+                    try:
+                        shutil.move(str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_obj.nc',
+                                   str(self.grib_path_temp)+'/'+MTDfile_new[model]+'_obj.nc')
+                    except FileNotFoundError as e:
+                        print(f"WARNING: MTD obj.nc output missing for model {model}: {e}")
+                    try:
+                        shutil.move(str(self.grib_path_temp)+'/'+MTDfile_old[model]+'_2d.txt',
+                                   str(self.grib_path_temp)+'/'+MTDfile_new[model]+'_2d.txt')
+                    except FileNotFoundError as e:
+                        print(f"WARNING: MTD 2d.txt output missing for model {model}: {e}")
                     for suffix in ['_3d_ss.txt', '_3d_sc.txt', '_3d_ps.txt', '_3d_pc.txt']:
                         p = pathlib.Path(str(self.grib_path_temp), MTDfile_old[model] + suffix)
                         if p.exists():
