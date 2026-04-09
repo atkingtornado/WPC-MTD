@@ -2310,8 +2310,9 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
         #plt.savefig('/export/hpc-lw-dtbdev5/merickson/Desktop/test1.png',bbox_inches='tight',dpi=150)
         #os.system('scp /export/hpc-lw-dtbdev5/merickson/Desktop/test1.png hpc@wpcrzdm:/home/people/hpc/ftp/erickson/test15')
        
+        cs1 = None
         for model in range(0,simp_bin_mod.shape[3]):
-            
+
             if np.sum(simp_bin_mod[:,:,hr_count,model]) == 0: #If no data, insert single value point
                 simp_bin_mod[0,0,hr_count,model] = 1
                     
@@ -2368,7 +2369,8 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
                 obj_count +=1
 
         #Create the title
-        cb = plt.colorbar(cs1,ax=ax)
+        if cs1 is not None:
+            cb = plt.colorbar(cs1,ax=ax)
         ax.set_title("All Snow Precip. Objects >= "+str(raw_thres)+"\" \n "+'{0:.2f}'.format(pre_acc)+ \
             " Hour Acc. Precip. at Hour "+'{0:.2f}'.format(hr_inc)+" - Initialized "+curdate.strftime('%Y%m%d%H'),fontsize=13)
 
