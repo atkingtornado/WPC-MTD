@@ -1224,8 +1224,9 @@ class WPCMTD:
         simp_bin = simp_bin > 0
         
         #Add NaNs to missing data in binary matrix. Convert to float
+        #Treat both failed hours (1) and beyond-capability hours (NaN) as missing data
         simp_bin=simp_bin.astype(float)
-        NaN_loc = (data_success == 1).astype(float)
+        NaN_loc = ((data_success == 1) | np.isnan(data_success)).astype(float)
         NaN_loc[NaN_loc == 1] = np.nan
         
         for j in range(simp_bin.shape[0]):
@@ -1378,8 +1379,16 @@ class WPCMTD:
                 if 'NEWSe60min' in self.load_data[model] and mod_lag > 0:
                     hrs_all = np.arange(self.hrs[0]-1,self.hrs[-1]+self.pre_acc,self.pre_acc)
                     data_success = np.concatenate((data_success,np.ones([1, len(self.load_data)])),axis = 0)
-                else: 
+                else:
                     hrs_all = np.arange(self.hrs[0],self.hrs[-1]+self.pre_acc,self.pre_acc)
+
+                #Determine the max verification hour this model can cover given its lag offset.
+                #Beyond this, the model forecast hour would exceed end_fcst_hrs (files don't exist).
+                max_verif_hr = self.end_fcst_hrs - self.offset_fcsthr[model]
+                if max_verif_hr < hrs_all[-1]:
+                    n_beyond = int(np.sum(hrs_all > max_verif_hr))
+                    print(f"INFO: Model {self.load_data[model]} (offset {self.offset_fcsthr[model]}h) "
+                          f"will skip {n_beyond} hrs beyond model forecast hr {self.end_fcst_hrs}")
 
                 while 1: # In operational mode, wait for a while to make sure all data comes in
 
@@ -1395,37 +1404,57 @@ class WPCMTD:
                     data_name_nc_prev = []
 
                     # Loop through the forecast hours
-                    for fcst_hr in hrs_all: 
-        
+                    for fcst_hr in hrs_all:
+
                         # Create proper string of last hour loaded to read in MTD file
                         last_fcst_hr_str = '{:02d}'.format(int(fcst_hr+self.offset_fcsthr[model]))
-        
+
+                        #Determine the forecast hour and min for the last accumulation sub-step
+                        #(sum_hr=0 gives the max model forecast hour for this verification hour)
+                        fcst_hr_load = float(fcst_hr) + self.offset_fcsthr[model]
+                        fcst_hr_str  = '{:02d}'.format(int(fcst_hr_load))
+                        fcst_min_str = '{:02d}'.format(int(round((fcst_hr_load-int(fcst_hr_load))*60)))
+
+                        #Skip forecast hours beyond model capability for lagged models.
+                        #Still populate arrays with placeholders to maintain index alignment.
+                        if fcst_hr_load > self.end_fcst_hrs:
+                            data_name_nc = np.append(data_name_nc,str(self.grib_path_temp)+"/"+load_data_nc[model][0:-3]+"_f"+fcst_hr_str+fcst_min_str+".nc")
+                            if (self.mtd_mode == 'Retro') and (self.load_model[0] not in self.load_data[model]):
+                                data_name_nc_prev = np.append(data_name_nc_prev,str(self.grib_path_temp)+"/"+self.load_data[0]+"_f"+fcst_hr_str+fcst_min_str+".nc")
+                            else:
+                                data_name_nc_prev = np.append(data_name_nc_prev,'null')
+                            #Mark as NaN (beyond model capability) rather than 1 (missing/failed)
+                            #so operational retry logic knows not to wait for these hours
+                            data_success[fcst_hr_count,model] = np.nan
+                            fcst_hr_count += 1
+                            continue
+
                         # Sum through accumulated precipitation interval
                         sum_hr_count = 0
                         data_name_temp = []
                         data_name_temp_part = []
-        
+
                         for sum_hr in np.arange(self.pre_acc-self.acc_int[model],-self.acc_int[model],-self.acc_int[model]):
-                        
+
                             #range(int(self.pre_acc) - int(acc_int[model]),-1,int(-acc_int[model])):
-                            
+
                             #Determine the forecast hour and min to load given current forecast hour, summing location and offset
                             fcst_hr_load = float(fcst_hr) + self.offset_fcsthr[model] - float(round(sum_hr,2))
                             fcst_hr_str  = '{:02d}'.format(int(fcst_hr_load))
                             fcst_min_str = '{:02d}'.format(int(round((fcst_hr_load-int(fcst_hr_load))*60)))
-        
+
                             #Determine the end date for the summation of precipitation accumulation
                             curdate_ahead = curr_date+datetime.timedelta(hours=fcst_hr_load - self.offset_fcsthr[model])
-        
+
                             #Use function to load proper data filename string
                             data_name_temp = np.append(data_name_temp,load_data_str(self.grib_path, self.load_data[model], self.init_yrmondayhr[model], self.acc_int[model], fcst_hr_str, fcst_min_str))
-        
+
                             #Find location of last slash to isolate file name from absolute path
                             for i in range(0,len(data_name_temp[sum_hr_count])):
                                 if '/' in data_name_temp[sum_hr_count][i]:
                                     str_search = i + 1
                             data_name_temp_part = np.append(data_name_temp_part, data_name_temp[sum_hr_count][str_search::])
-        
+
                             #Decompress grib file directly to temp directory (replaces cp + gunzip *.gz)
                             perf.start('file_copy')
                             src_gz = data_name_temp[sum_hr_count] + ".gz"
@@ -1464,7 +1493,7 @@ class WPCMTD:
                                     f.close()
                                 except:
                                     pass
-                        
+
                         #Regrid to ST4 grid using regrid_data_plane
                         perf.start('regrid_data_plane')
                         data_success[fcst_hr_count,model] = _run_cmd(str(self.met_path)+"/regrid_data_plane "+str(self.grib_path_temp)+"/"+ \
@@ -1498,7 +1527,7 @@ class WPCMTD:
 
                         #Apply a regional mask if wanted
                         self.apply_reg_mask(model, data_name_nc, data_name_nc_prev, APCP_str_end, fcst_hr_count)
-     
+
                         fcst_hr_count += 1
                     #END through forecast hour
 
