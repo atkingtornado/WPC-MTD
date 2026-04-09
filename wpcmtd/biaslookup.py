@@ -6,7 +6,7 @@ import datetime
 import time
 import glob
 from scipy import interpolate
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import gaussian_filter
 import pathlib
 
 
@@ -674,10 +674,10 @@ class WPCMTDBiasLookup(WPCMTD):
                             rep_count += 1
 
                     if len(diffdata) == 0:
-                        diffdata = np.full((10,1),np.NaN)
+                        diffdata = np.full((10,1),np.nan)
                     pair_diff[model][ind_t] = diffdata
                 else:
-                    pair_diff[model][ind_t] = np.full((10,1),np.NaN)
+                    pair_diff[model][ind_t] = np.full((10,1),np.nan)
 
         return(pair_diff)
 
@@ -794,7 +794,7 @@ class WPCMTDBiasLookup(WPCMTD):
             if not np.isnan(np.nanmean(simp_prop_k)):
                 simp_prop[model]       = simp_prop_k
             else:
-                simp_prop[model]       = np.full((10,1),np.NaN)
+                simp_prop[model]       = np.full((10,1),np.nan)
 
             #END model loop
 

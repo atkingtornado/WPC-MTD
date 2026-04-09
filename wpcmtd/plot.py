@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import shutil
 import string
 import gzip
 import os
@@ -12,7 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import warnings
 from scipy import interpolate
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import gaussian_filter
 import datetime
 import copy
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
@@ -22,7 +23,6 @@ import geojsoncontour
 import geojson
 import xarray as xr
 mpl.use('Agg') #So plots can be saved in cron
-
 
 
 #Simple definition to load all of the basic map properites. Inputs can be a 
@@ -146,7 +146,7 @@ def mtd_plot_retro_disp_vect(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,th
     #Add NaNs to missing data in binary matrix. Convert to float
     simp_bin=simp_bin.astype(float)
     NaN_loc = (data_success == 1).astype(float)
-    NaN_loc[NaN_loc == 1] = np.NaN
+    NaN_loc[NaN_loc == 1] = np.nan
 
     for j in range(simp_bin.shape[0]):
         for i in range(simp_bin.shape[1]):
@@ -341,7 +341,6 @@ def mtd_plot_retro_disp_vect(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,th
             plt.legend(line_label, line_str, fontsize=6, numpoints=1, loc=4, framealpha=1)
 
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-        plt.show()
         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
             '_t'+str(thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=200)
         plt.close()
@@ -364,8 +363,8 @@ def mtd_plot_retro_disp_vect(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,th
     #Create an animation from the figures previously saved and create a non date specific file (website thumbnail)
     os.system('convert -delay 100 '+' '.join(fig_name)+' -loop 0 '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+ \
         curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif')
-    os.system('cp '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+curdate_currn.strftime('%Y%m%d%H')+\
-        '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+\
+    shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+curdate_currn.strftime('%Y%m%d%H')+\
+        '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_'+\
         'p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif')
     # os.system('scp '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot3_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'.gif '+\
     #     'hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd_exp/images')
@@ -466,7 +465,7 @@ def mtd_plot_retro_prob(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,thres,c
     #Add NaNs to missing data in binary matrix. Convert to float
     simp_bin=simp_bin.astype(float)
     NaN_loc = (data_success == 1).astype(float)
-    NaN_loc[NaN_loc == 1] = np.NaN
+    NaN_loc[NaN_loc == 1] = np.nan
 
     for j in range(simp_bin.shape[0]):
         for i in range(simp_bin.shape[1]):
@@ -691,7 +690,6 @@ def mtd_plot_retro_prob(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,thres,c
                         ax2 = plt.gca().add_artist(first_legend)
 
                         plot_map([latlon_dims_s[1],latlon_dims_s[3]],[latlon_dims_s[0],latlon_dims_s[2]],ax)
-                        plt.show()
                         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot2_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+ \
                             '{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'_'+load_data_nc[model][0:-3]+'_obj'+str(obj_count)+'_f'+\
                             '{:02d}'.format(hr_inc+1)+'.png',bbox_inches='tight',dpi=200)
@@ -774,7 +772,6 @@ def mtd_plot_retro_prob(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,thres,c
                         transform=ax.transAxes, fontsize=12,verticalalignment='top', horizontalalignment='center', bbox=props)
 
                     plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-                    plt.show()
                     plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_retroplot1_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+ \
                         '{0:.2f}'.format(pre_acc)+'_t'+str(thres)+'_'+load_data_nc[model][0:-3]+'_f'+\
                         '{:02d}'.format(hr_inc+1)+'.png',bbox_inches='tight',dpi=200)
@@ -892,7 +889,7 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
     #Add NaNs to missing data in binary matrix. Convert to float
     clus_bin=clus_bin.astype(float)
     NaN_loc = (np.mean(data_success,axis=1)>0)*1.0
-    NaN_loc[NaN_loc == 1] = np.NaN
+    NaN_loc[NaN_loc == 1] = np.nan
     
     for j in range(clus_bin.shape[0]):
         for i in range(clus_bin.shape[1]):
@@ -1071,8 +1068,6 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
         #Show and save the plot
         #plt.hold(True)
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-        plt.show()
-
         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objshape_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
             '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
@@ -1196,7 +1191,6 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
         #Show and save the plot
         #plt.hold(True)
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-        plt.show()
         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_fcst_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
             '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
@@ -1320,7 +1314,6 @@ def mtd_plot_retro(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres,cu
         #Show and save the plot
         #plt.hold(True)
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-        plt.show()
         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_obs_precipAobjs_byhour_'+curdate_currn.strftime('%Y%m%d%H%M')+ \
             '_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
@@ -1400,7 +1393,7 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
     #Add NaNs to missing data in binary matrix. Convert to float
     simp_bin=simp_bin.astype(float)
     NaN_loc = (data_success == 1).astype(float)
-    NaN_loc[NaN_loc == 1] = np.NaN
+    NaN_loc[NaN_loc == 1] = np.nan
     
     for j in range(simp_bin.shape[0]):
         for i in range(simp_bin.shape[1]):
@@ -1572,7 +1565,6 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
     #Show and save the plot
     #plt.hold(True)
     plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-    plt.show()
     plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_bymodel_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
         '_t'+str(raw_thres)+'.png', bbox_inches='tight',dpi=150)
     plt.close()
@@ -1674,8 +1666,6 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
         " Hour Acc. Precip. - Initialized "+curdate.strftime('%Y%m%d%H'),fontsize=13)
         
     #Show and save the plot
-    #plt.hold(True)
-    plt.show()
     plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
     plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_bytime_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
         '_t'+str(raw_thres)+'.png', bbox_inches='tight',dpi=150)
@@ -1875,7 +1865,6 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
             
         #Show and save the plot
         #plt.hold(True)
-        plt.show()
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
             '_t'+str(raw_thres)+'_f'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
@@ -1892,8 +1881,8 @@ def mtd_plot_all_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
         curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
 
     #Copy to a non-date specific name for website dynamic thumbnail
-    os.system('cp '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
-        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_p'+\
+    shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
+        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_TOTENS_objprob_byhour_p'+\
         '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
 
     #Convert data from fraction of an hour back to increments
@@ -1969,7 +1958,7 @@ def mtd_plot_tle_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
     #Add NaNs to missing data in binary matrix. Convert to float
     simp_bin=simp_bin.astype(float)
     NaN_loc = (data_success == 1).astype(float)
-    NaN_loc[NaN_loc == 1] = np.NaN
+    NaN_loc[NaN_loc == 1] = np.nan
 
     for j in range(simp_bin.shape[0]):
         for i in range(simp_bin.shape[1]):
@@ -2166,7 +2155,6 @@ def mtd_plot_tle_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_thres
                 " Hour Acc. Precip. - Initialized "+curdate.strftime('%Y%m%d%H'),fontsize=13)
             #plt.hold(True)
             plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-            plt.show()
             plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_TLE_obj_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
             '_t'+str(raw_thres)+'_group'+str(ind_count)+'.png', bbox_inches='tight',dpi=150)
             plt.close()
@@ -2242,7 +2230,7 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
     #Add NaNs to missing data in binary matrix. Convert to float
     simp_bin=simp_bin.astype(float)
     NaN_loc = (data_success == 1).astype(float)
-    NaN_loc[NaN_loc == 1] = np.NaN
+    NaN_loc[NaN_loc == 1] = np.nan
     
     for j in range(simp_bin.shape[0]):
         for i in range(simp_bin.shape[1]):
@@ -2338,8 +2326,7 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
             obj_count = 1
             for obj in inten:
 
-                colorlist = ["#ffffff", "#95FF9F", "#0BC31D", "#006400", "#FAE94C", "#F5AD31", "#FF4500", "#CC0000", "#8B0000", "#4B0082", "#FF00FF"] 
-                if   obj >= 0.00 and obj < 0.05: 
+                if   obj >= 0.00 and obj < 0.05:
                     c_outline = "#ffffff"
                 elif obj >= 0.05 and obj < 0.10:
                     c_outline = "#95FF9F"
@@ -2380,7 +2367,6 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
             " Hour Acc. Precip. at Hour "+'{0:.2f}'.format(hr_inc)+" - Initialized "+curdate.strftime('%Y%m%d%H'),fontsize=13)
 
         plot_map([latlon_dims[1],latlon_dims[3]],[latlon_dims[0],latlon_dims[2]],ax)
-        plt.show()
         plt.savefig(FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+ \
             '_t'+str(raw_thres)+'_h'+'{:02d}'.format(int(hr_count)+1)+'.png', bbox_inches='tight',dpi=150)
         plt.close()
@@ -2396,8 +2382,8 @@ def mtd_plot_all_snow_fcst(GRIB_PATH_DES,FIG_PATH_s,latlon_dims,pre_acc,hrs,raw_
         curdate_currn.strftime('%Y%m%d%H')+'_p'+'{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
 
     #Copy to a non-date specific name for website dynamic thumbnail
-    os.system('cp '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
-        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif '+FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_p'+\
+    shutil.copy2(FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_'+curdate_currn.strftime('%Y%m%d%H')+'_p'+\
+        '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif', FIG_PATH_s+'/'+GRIB_PATH_DES+'_snowobj_byhour_p'+\
         '{0:.2f}'.format(pre_acc)+'_t'+str(raw_thres)+'.gif')
  
     #Convert data from fraction of an hour back to increments 
