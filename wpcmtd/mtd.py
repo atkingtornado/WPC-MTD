@@ -1710,54 +1710,54 @@ class WPCMTD:
 
             if self.mtd_mode == 'Operational':#If in operational mode, create plots
 
-            #     #Save data for FF site
-            #     # METLoadEnsemble.port_data_FF(TRACK_PATH,GRIB_PATH_DES,datetime_curdate,start_hrs,end_fcst_hrs,hrs_all,pre_acc,thres,sigma,\
-            #     #     load_model,simp_bin,simp_prop,lat_t,lon_t,snow_mask)
-                 if self.save_probs_to_file:
-                     self.save_probs(curr_date, load_data_nc, simp_bin, data_success)
+                #Save data for FF site
+                # METLoadEnsemble.port_data_FF(TRACK_PATH,GRIB_PATH_DES,datetime_curdate,start_hrs,end_fcst_hrs,hrs_all,pre_acc,thres,sigma,\
+                #     load_model,simp_bin,simp_prop,lat_t,lon_t,snow_mask)
+                if self.save_probs_to_file:
+                    self.save_probs(curr_date, load_data_nc, simp_bin, data_success)
 
-                 perf.start('plotting_total')
-                 import copy as _copy
-                 if len(self.domain_sub) > 1:
-                     #Parallel subdomain plotting - each subdomain gets its own copy of simp_prop
-                     #since plotting functions temporarily modify it in-place
-                     def _plot_subdomain(subsets):
-                         simp_prop_copy = _copy.deepcopy(simp_prop)
-                         perf.logger.info(f"  Plotting subdomain {subsets}: {self.domain_sub[subsets]}")
-                         if self.snow_mask == False:
-                             mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop_copy, self.sigma)
-                             mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop_copy, self.sigma)
-                         elif self.snow_mask == True:
-                             mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop_copy)
+                perf.start('plotting_total')
+                import copy as _copy
+                if len(self.domain_sub) > 1:
+                    #Parallel subdomain plotting - each subdomain gets its own copy of simp_prop
+                    #since plotting functions temporarily modify it in-place
+                    def _plot_subdomain(subsets):
+                        simp_prop_copy = _copy.deepcopy(simp_prop)
+                        perf.logger.info(f"  Plotting subdomain {subsets}: {self.domain_sub[subsets]}")
+                        if self.snow_mask == False:
+                            mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                                self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop_copy, self.sigma)
+                            mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                                self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop_copy, self.sigma)
+                        elif self.snow_mask == True:
+                            mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                                self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop_copy)
 
-                     with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(self.domain_sub), 4)) as executor:
-                         futures = {executor.submit(_plot_subdomain, s): s for s in range(len(self.domain_sub))}
-                         for future in concurrent.futures.as_completed(futures):
-                             future.result()  # Raise any exceptions
-                 else:
-                     #Single subdomain - no parallelization needed
-                     for subsets in range(0,len(self.domain_sub)):
-                         perf.start('plot_subdomain')
-                         perf.logger.info(f"  Plotting subdomain {subsets}: {self.domain_sub[subsets]}")
-                         if self.snow_mask == False:
-                             mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
-                             mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
-                         elif self.snow_mask == True:
-                             mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
-                                 self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop)
-                         perf.stop('plot_subdomain')
-                 perf.stop('plotting_total')
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(self.domain_sub), 4)) as executor:
+                        futures = {executor.submit(_plot_subdomain, s): s for s in range(len(self.domain_sub))}
+                        for future in concurrent.futures.as_completed(futures):
+                            future.result()  # Raise any exceptions
+                else:
+                    #Single subdomain - no parallelization needed
+                    for subsets in range(0,len(self.domain_sub)):
+                        perf.start('plot_subdomain')
+                        perf.logger.info(f"  Plotting subdomain {subsets}: {self.domain_sub[subsets]}")
+                        if self.snow_mask == False:
+                            mtd_plot_all_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                                self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
+                            mtd_plot_tle_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                                self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop, self.sigma)
+                        elif self.snow_mask == True:
+                            mtd_plot_all_snow_fcst(str(self.grib_path_des)+self.domain_sub[subsets], str(self.fig_path), self.latlon_sub[subsets], self.pre_acc, \
+                                self.hrs, self.thresh, curr_date, data_success, load_data_nc, self.lat, self.lon, simp_bin, simp_prop)
+                        perf.stop('plot_subdomain')
+                perf.stop('plotting_total')
 
-                 if (self.transfer_to_prod):
-                     perf.start('port_data_FIGS')
-                     #Copy over relevant images to proper websites
-                     self.port_data_FIGS(curr_date)
-                     perf.stop('port_data_FIGS')
+                if (self.transfer_to_prod):
+                    perf.start('port_data_FIGS')
+                    #Copy over relevant images to proper websites
+                    self.port_data_FIGS(curr_date)
+                    perf.stop('port_data_FIGS')
                     
 
             del simp_prop 
