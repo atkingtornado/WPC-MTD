@@ -1,0 +1,32 @@
+{
+ "qpf": [
+  "scp /figs/2026092712/MTD_QPF_TEST*ALL*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd/images/",
+  "aws s3 cp /figs/2026092712/ s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude \"*\" --include \"*MTD_QPF_TEST*ALL*.*\"",
+  "ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/verification/mtd/images/*MTD_QPF_TEST*20260925*.*'",
+  "aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude \"*\" --include \"*20260925*.*\"",
+  "scp /figs/2026092712/MTD_QPF_TEST*NW*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/verification/mtd/images/",
+  "aws s3 cp /figs/2026092712/ s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude \"*\" --include \"*MTD_QPF_TEST*NW*.*\"",
+  "ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/verification/mtd/images/*MTD_QPF_TEST*20260925*.*'",
+  "aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/verification/mtd/images/ --recursive --exclude \"*\" --include \"*20260925*.*\""
+ ],
+ "subhourly": [
+  "scp /figs/2026092712/MTD_QPF_TEST*ALL*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/HRRRSubHr/images/ALL/",
+  "aws s3 cp /figs/2026092712/ s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/ALL/ --recursive --exclude \"*\" --include \"*MTD_QPF_TEST*ALL*.*\"",
+  "ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/HRRRSubHr/images/ALL/*MTD_QPF_TEST*20260925*.*'",
+  "aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/ALL/ --recursive --exclude \"*\" --include \"*20260925*.*\"",
+  "scp /figs/2026092712/MTD_QPF_TEST*NW*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/HRRRSubHr/images/NW/",
+  "aws s3 cp /figs/2026092712/ s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/NW/ --recursive --exclude \"*\" --include \"*MTD_QPF_TEST*NW*.*\"",
+  "ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/HRRRSubHr/images/NW/*MTD_QPF_TEST*20260925*.*'",
+  "aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/HRRRSubHr/images/NW/ --recursive --exclude \"*\" --include \"*20260925*.*\""
+ ],
+ "snow": [
+  "scp /figs/2026092712/MTD_QPF_TEST*ALL*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/",
+  "aws s3 cp /figs/2026092712/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude \"*\" --include \"*MTD_QPF_TEST*ALL*.*\"",
+  "ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/snowbands/images/*MTD_QPF_TEST*20260922*.*'",
+  "aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude \"*\" --include \"*20260922*.*\"",
+  "scp /figs/2026092712/MTD_QPF_TEST*NW*.* hpc@wpcrzdm:/home/people/hpc/www/htdocs/snowbands/images/",
+  "aws s3 cp /figs/2026092712/ s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude \"*\" --include \"*MTD_QPF_TEST*NW*.*\"",
+  "ssh hpc@wpcrzdm 'rm /home/people/hpc/www/htdocs/snowbands/images/*MTD_QPF_TEST*20260922*.*'",
+  "aws s3 rm s3://s3-east-www.wpc.woc.noaa.gov/public/snowbands/images/ --recursive --exclude \"*\" --include \"*20260922*.*\""
+ ]
+}

@@ -1,6 +1,46 @@
 [build-system]
-requires = [
-	"setuptools>=54",
-	"wheel"
-]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "wpcmtd"
+version = "1.0.0"
+description = "WPC object-based precipitation tracking with MET Mode Time Domain (MTD)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "xarray>=2023.1",
+    "netCDF4>=1.6",
+    "matplotlib>=3.8",
+    "cartopy>=0.22",
+    "geojson>=3.0",
+    "geojsoncontour>=0.5",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "pycodestyle>=2.11"]
+
+[tool.setuptools.packages.find]
+include = ["wpcmtd*"]
+
+[tool.setuptools.package-data]
+wpcmtd = ["met_grib_tables/*.txt"]
+
+[tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "N", "I", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["wpcmtd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

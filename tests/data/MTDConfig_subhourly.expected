@@ -1,0 +1,111 @@
+model = "WRF";
+desc = "NA";
+obtype = "ANALYS";
+regrid = {
+    to_grid    = NONE;
+    vld_thresh = 0.5;
+    method     = NEAREST;
+    width      = 1;
+}
+
+grid_res = 4;
+
+fcst = {
+   field = {
+      name  = "A010000";
+      level = "(*,*)";
+   }
+
+   conv_radius       = 6; // in grid squares
+   conv_thresh       = >=2.54;
+}
+
+obs = fcst;
+min_volume = 700;
+weight = {
+   space_centroid_dist  = 12.0;
+   time_centroid_delta  = 2.0;
+   speed_delta          = 0.0;
+   direction_diff       = 0.0;
+   volume_ratio         = 1.0;
+   axis_angle_diff      = 0.0;
+   start_time_delta     = 3.0;
+   end_time_delta       = 1.0;
+}
+
+interest_function = {
+   space_centroid_dist = (
+      (   0.0, 1.0 )
+      (  50.0, 0.5 )
+      ( 150.0, 0.0 )
+   );
+
+   time_centroid_delta = (
+      ( -5.0, 0.0 )
+      ( -3.0, 0.5 )
+      ( -1.0, 0.8 )
+      (  0.0, 1.0 )
+      (  1.0, 0.8 )
+      (  3.0, 0.5 )
+      (  5.0, 0.0 )
+   );
+
+   speed_delta = (
+      ( -10.0, 0.0 )
+      (  -5.0, 0.5 )
+      (   0.0, 1.0 )
+      (   5.0, 0.5 )
+      (  10.0, 0.0 )
+   );
+
+   direction_diff = (
+      (   0.0, 1.0 )
+      (  90.0, 0.0 )
+      ( 180.0, 0.0 )
+   );
+
+   volume_ratio = (
+      (  0.0, 0.0 )
+      (  0.5, 0.5 )
+      (  1.0, 1.0 )
+      (  1.5, 0.5 )
+      (  2.0, 0.0 )
+   );
+   axis_angle_diff = (
+      (  0.0, 1.0 )
+      ( 30.0, 1.0 )
+      ( 90.0, 0.0 )
+   );
+
+   start_time_delta = (
+      (  0.0, 1.0 )
+      (  3.0, 0.5 )
+      (  5.0, 0.0 )
+   );
+
+   end_time_delta = (
+      (  0.0, 1.0 )
+      (  3.0, 0.5 )
+      (  5.0, 0.0 )
+   );
+
+}
+
+total_interest_thresh = 0.7;
+
+nc_output = {
+   latlon       = true;
+   raw          = true;
+   object_id    = true;
+   cluster_id   = true;
+}
+
+txt_output = {
+   attributes_2d   = true;
+   attributes_3d   = true;
+}
+
+output_prefix  = "";
+
+version        = "V10.0";
+
