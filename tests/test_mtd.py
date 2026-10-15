@@ -177,6 +177,29 @@ def test_nam_offset_when_cycle_is_between_runs(tmp_path):
     assert obj.init_yrmondayhr == ['2026092712', '2026092706']
 
 
+def test_lagged_hours_past_end_used_when_run_has_them(tmp_path):
+    """lag12/lag06 reach f48/f42: load those hours if the files exist."""
+    write_static_grid(tmp_path / 'archive')
+    obj = make_mtd(tmp_path)
+    cycle = datetime.datetime(2026, 9, 27, 12)
+    obj.setup_data(cycle)
+    # The 00Z run went to f48; the 06Z run only to f36.
+    for init, last in (('2026092700', 48), ('2026092706', 36)):
+        day = tmp_path / 'archive' / 'HRRRv4' / init[:8]
+        day.mkdir(parents=True, exist_ok=True)
+        for fhr in range(last + 1):
+            (day / f'hrrr_2d_{init}{fhr:02d}.grib2.gz').touch()
+
+    lag12 = obj._plan_model(cycle, 0, tmp_path, tmp_path)
+    lag06 = obj._plan_model(cycle, 1, tmp_path, tmp_path)
+    assert not any(step.beyond for step in lag12.steps)
+    assert lag12.steps[-1].sources[0].endswith('hrrr_2d_202609270048.grib2')
+    assert lag12.last_fcst_hr_str == '48'
+    beyond = [step.fcst_hr for step in lag06.steps if step.beyond]
+    assert beyond == list(np.arange(31.0, 37.0))
+    assert all(not step.sources for step in lag06.steps if step.beyond)
+
+
 def test_mtd_output_prefix_uses_valid_time(tmp_path):
     """MTD names its output after the valid time of the first input."""
     obj = make_mtd(tmp_path)

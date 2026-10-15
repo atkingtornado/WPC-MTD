@@ -924,20 +924,12 @@ class WPCMTD:
             first_hr, self.hrs[-1] + self.pre_acc, self.pre_acc
         )
 
-        max_verif_hr = self.end_fcst_hrs - offset
-        if max_verif_hr < hrs_all[-1]:
-            n_beyond = int(np.sum(hrs_all > max_verif_hr))
-            logger.info(
-                f'INFO: Model {name} (offset {offset}h) will skip '
-                f'{n_beyond} hrs '
-                f'beyond model forecast hr {self.end_fcst_hrs}'
-            )
-
         retro_pair = (
             self.mtd_mode == 'Retro' and self.load_model[0] not in name
         )
         steps, grib_names = [], []
         last_fcst_hr_str = ''
+        n_beyond = 0
         for index, fcst_hr in enumerate(hrs_all):
             last_fcst_hr_str = f'{int(fcst_hr + offset):02d}'
             fcst_hr_load = float(fcst_hr) + offset
@@ -946,27 +938,36 @@ class WPCMTD:
                 f'{int(round((fcst_hr_load - int(fcst_hr_load)) * 60)):02d}'
             )
 
-            beyond = fcst_hr_load > self.end_fcst_hrs
+            past_end = fcst_hr_load > self.end_fcst_hrs
             sources = []
             ahead = None
-            if not beyond:
-                # Files making up the accumulation ending at this hour.
-                for sum_hr in np.arange(
-                    self.pre_acc - acc_int, -acc_int, -acc_int
-                ):
-                    fcst_hr_load = (
-                        float(fcst_hr) + offset - float(round(sum_hr, 2))
-                    )
-                    hr_str = f'{int(fcst_hr_load):02d}'
-                    frac = fcst_hr_load - int(fcst_hr_load)
-                    min_str = f'{int(round(frac * 60)):02d}'
-                    ahead = curr_date + datetime.timedelta(
-                        hours=fcst_hr_load - offset
-                    )
-                    sources += load_data_str(
-                        self.grib_path, name, init, acc_int, hr_str, min_str
-                    )
-                grib_names += [os.path.basename(src) for src in sources]
+            # Files making up the accumulation ending at this hour.
+            for sum_hr in np.arange(
+                self.pre_acc - acc_int, -acc_int, -acc_int
+            ):
+                fcst_hr_load = (
+                    float(fcst_hr) + offset - float(round(sum_hr, 2))
+                )
+                hr_str = f'{int(fcst_hr_load):02d}'
+                frac = fcst_hr_load - int(fcst_hr_load)
+                min_str = f'{int(round(frac * 60)):02d}'
+                ahead = curr_date + datetime.timedelta(
+                    hours=fcst_hr_load - offset
+                )
+                sources += load_data_str(
+                    self.grib_path, name, init, acc_int, hr_str, min_str
+                )
+            # A lagged member reaches past end_fcst_hrs.  Use those hours
+            # when the run went that far (e.g. HRRR's 48 h synoptic runs);
+            # otherwise the hour is beyond the model's range and is skipped
+            # without waiting, since the files will never exist.
+            beyond = past_end and not all(
+                os.path.exists(src + '.gz') for src in sources
+            )
+            if beyond:
+                sources, ahead = [], None
+                n_beyond += 1
+            grib_names += [os.path.basename(src) for src in sources]
 
             suffix = f'_f{hr_str}{min_str}.nc'
             steps.append(
@@ -984,6 +985,11 @@ class WPCMTD:
                 )
             )
 
+        if n_beyond:
+            logger.info(
+                f'INFO: Model {name} (offset {offset}h) will skip '
+                f'{n_beyond} hrs beyond its last forecast hour'
+            )
         return _ModelRun(
             index=model,
             name=name,
