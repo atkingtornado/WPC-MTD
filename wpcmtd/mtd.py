@@ -455,8 +455,12 @@ class WPCMTD:
     reg_mask_file: ClassVar[str | None] = None
 
     def __post_init__(self):
+        # MTD names its output files to the minute, so seconds in the cycle
+        # time (e.g. a driver's ``now() - 2 h``) would break the file names.
         self.beg_date, self.end_date = adjust_date_range(
-            self.beg_date, self.end_date, self.init_inc
+            self.beg_date.replace(second=0, microsecond=0),
+            self.end_date.replace(second=0, microsecond=0),
+            self.init_inc,
         )
 
         if self.mtd_mode == 'Operational':

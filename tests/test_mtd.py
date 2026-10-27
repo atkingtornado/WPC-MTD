@@ -151,6 +151,14 @@ def test_hours_and_dates(tmp_path):
     assert list(retro.ismodel) == [1.0, 0.0]
 
 
+def test_cycle_time_seconds_dropped(tmp_path):
+    # The drivers pass now() - 2 h with only the minutes zeroed; MTD's
+    # output file names have no seconds, so they must not reach curr_date.
+    now = datetime.datetime(2026, 10, 26, 18, 0, 37, 123456)
+    obj = make_mtd(tmp_path, beg_date=now, end_date=now)
+    assert list(obj.list_date) == [datetime.datetime(2026, 10, 26, 18)]
+
+
 def test_setup_data(tmp_path):
     lat, lon = write_static_grid(tmp_path / 'archive')
     obj = make_mtd(tmp_path)
