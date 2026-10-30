@@ -1,6 +1,10 @@
 """Tests for wpcmtd.plot helpers (and a small end-to-end figure)."""
 
 import datetime
+import multiprocessing
+import os
+import subprocess
+import sys
 import warnings
 
 import numpy as np
@@ -274,3 +278,52 @@ def test_plot_bias_lookup_smoke(tmp_path):
     np.testing.assert_array_equal(pair_diff[0][0], retro)  # not modified
     plot.mtd_plot_retro_prob(*args)
     assert list(tmp_path.glob('BIAS_ALL_retroplot1_*.png'))
+
+
+FORKSERVER_SCRIPT = """
+import multiprocessing
+import multiprocessing.util
+import os
+
+from wpcmtd import plot
+
+
+def job(scale, i):
+    return scale * i
+
+
+if __name__ == '__main__':
+    multiprocessing.set_start_method('forkserver')
+    plot.plot_regions_in_parallel(
+        [(job, dict(i=i)) for i in range(4)], 2, dict(scale=2)
+    )
+    print(os.listdir(multiprocessing.util.get_temp_dir()))
+"""
+
+
+@pytest.mark.skipif(
+    'forkserver' not in multiprocessing.get_all_start_methods(),
+    reason='no fork server on this platform',
+)
+def test_parallel_plotting_leaves_no_forkserver_socket(tmp_path):
+    # multiprocessing removes its temp folder at exit; a fork server still
+    # bound to its socket there makes that fail on NFS ("Directory not
+    # empty"), so the folder must be empty once the workers are done.
+    script = tmp_path / 'run_pool.py'
+    script.write_text(FORKSERVER_SCRIPT)
+    result = subprocess.run(
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=dict(
+            os.environ,
+            TMPDIR=str(tmp_path),
+            # import the same wpcmtd as this test
+            PYTHONPATH=os.path.dirname(os.path.dirname(plot.__file__)),
+        ),
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == '[]'
+    assert 'Traceback' not in result.stderr

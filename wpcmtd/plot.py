@@ -16,6 +16,7 @@ import contextlib
 import datetime
 import logging
 import math
+import multiprocessing.forkserver
 import os
 import shutil
 import warnings
@@ -384,17 +385,40 @@ def plot_regions_in_parallel(jobs, max_workers, shared=None):
         return
 
     prefetch_map_data()
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=min(max_workers, len(jobs)),
-        initializer=_init_worker,
-        initargs=(shared,),
-    ) as pool:
-        futures = [
-            pool.submit(_call_with_shared, func, kwargs)
-            for func, kwargs in jobs
-        ]
-        for future in concurrent.futures.as_completed(futures):
-            future.result()  # re-raise worker errors
+    try:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=min(max_workers, len(jobs)),
+            initializer=_init_worker,
+            initargs=(shared,),
+        ) as pool:
+            futures = [
+                pool.submit(_call_with_shared, func, kwargs)
+                for func, kwargs in jobs
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()  # re-raise worker errors
+    finally:
+        _stop_forkserver()
+
+
+def _stop_forkserver():
+    """
+    Stop multiprocessing's fork server once the plotting workers are done.
+
+    The fork server (how Python 3.14 starts worker processes on Linux)
+    listens on a socket file in multiprocessing's temporary folder,
+    ``$TMPDIR/pymp-*``, and is otherwise left running until after the
+    main process exits.  The folder is removed at exit while the server
+    still holds the socket, which on NFS turns the socket into a ``.nfs*``
+    file instead of deleting it: the removal then fails with "Directory
+    not empty" and leaves the folder behind.  Stopping the server here
+    deletes the socket while nothing uses it.  ``_stop`` is private, so
+    this does nothing if a Python version lacks it.
+    """
+    server = getattr(multiprocessing.forkserver, '_forkserver', None)
+    stop = getattr(server, '_stop', None)
+    if stop is not None:
+        stop()
 
 
 def split_hours(n_hours, n_chunks):
