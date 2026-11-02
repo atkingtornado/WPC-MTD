@@ -21,6 +21,19 @@ def test_load_data_str_matches_original(case):
     assert utils.load_data_str('/arch', *args) == [expected]
 
 
+@pytest.mark.parametrize(
+    'name, init, hr, expected',
+    [
+        ('RRFS_TLE_lag12', '2026110200', '13',
+         '/arch/RRFS/20261102/rrfs.t00z.2dfld.3km.f013.conus.grib2'),
+        ('RRFS_TLE_lag00', '2026110212', '48',
+         '/arch/RRFS/20261102/rrfs.t12z.2dfld.3km.f048.conus.grib2'),
+    ],
+)
+def test_load_data_str_rrfs(name, init, hr, expected):
+    assert utils.load_data_str('/arch', name, init, 1, hr, '00') == [expected]
+
+
 def test_load_data_str_unknown_model():
     with pytest.raises(ValueError, match='Unrecognized'):
         utils.load_data_str(

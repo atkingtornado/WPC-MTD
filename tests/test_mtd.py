@@ -91,6 +91,7 @@ def test_accum_str(hours, expected):
         ('ST4_lag00', 25, 1),
         ('NSSL-ARW-CTL_lag00', 2, 1),
         ('HRRRe60min_mem01_lag00', 25, 1),
+        ('RRFS_TLE_lag06', 5, 1),
     ],
 )
 def test_run_cycle(name, n_runs, acc):
@@ -183,6 +184,30 @@ def test_nam_offset_when_cycle_is_between_runs(tmp_path):
     obj.setup_data(datetime.datetime(2026, 9, 27, 13))
     assert obj.offset_fcsthr == [1, 7]
     assert obj.init_yrmondayhr == ['2026092712', '2026092706']
+
+
+def test_rrfs_tle_uses_six_hourly_runs(tmp_path):
+    """Only the 00/06/12/18Z RRFS runs are archived, out to f060."""
+    write_static_grid(tmp_path / 'archive')
+    obj = make_mtd(
+        tmp_path,
+        load_model=['RRFS_TLE_lag12', 'RRFS_TLE_lag06', 'RRFS_TLE_lag00'],
+        grib_path_des='MTD_QPF_RRFSTLE_EXT',
+    )
+    cycle = datetime.datetime(2026, 11, 2, 12)
+    obj.setup_data(cycle)
+    assert obj.offset_fcsthr == [12, 6, 0]
+    assert obj.init_yrmondayhr == ['2026110200', '2026110206', '2026110212']
+
+    lag12 = obj._plan_model(cycle, 0, tmp_path, tmp_path)
+    assert lag12.steps[0].sources[0].endswith(
+        'RRFS/20261102/rrfs.t00z.2dfld.3km.f013.conus.grib2'
+    )
+
+    # Between synoptic times the latest archived run is used.
+    obj.setup_data(datetime.datetime(2026, 11, 2, 15))
+    assert obj.offset_fcsthr == [15, 9, 3]
+    assert obj.init_yrmondayhr == ['2026110200', '2026110206', '2026110212']
 
 
 def test_lagged_hours_past_end_used_when_run_has_them(tmp_path):

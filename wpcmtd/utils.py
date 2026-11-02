@@ -502,6 +502,13 @@ def load_data_str(
             f'{grib_path}/{prefix}/{ymd}/{prefix.lower()}.t{hh}z'
             f'.conus.testbed.f{fcst_hr_str}.grib2.mod'
         )
+    elif 'RRFS' in name:
+        # RRFS deterministic 2-D fields, subset to REFC, SNOD, CSNOW and the
+        # hourly APCP bucket by get_rrfs.py on the dev VM.
+        path = (
+            f'{grib_path}/RRFS/{ymd}/rrfs.t{hh}z.2dfld.3km'
+            f'.f{int(fcst_hr_str):03d}.conus.grib2'
+        )
     elif 'HRRRv415min' in name:
         path = (
             f'{grib_path}/HRRRv4_SubHourly/{ymd}/hrrr_2d_{init_yrmondayhr}'
