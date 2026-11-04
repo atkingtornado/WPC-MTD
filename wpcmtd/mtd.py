@@ -200,7 +200,7 @@ def _run_cycle(name, pre_acc, curr_date):
         return np.linspace(0, 24, 25), 1
     if 'HRRRv415min' in name:
         return np.linspace(0, 24, 25), 1.0 / 4.0
-    if 'RRFS' in name:
+    if 'RRFS' in name or 'REFS' in name:
         # Only the 00/06/12/18 UTC runs are archived (out to 60 h).
         return np.linspace(0, 24, 5), 1
     raise ValueError(f'Unrecognized model/analysis name: {name}')

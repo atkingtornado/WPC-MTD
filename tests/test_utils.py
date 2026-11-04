@@ -34,6 +34,12 @@ def test_load_data_str_rrfs(name, init, hr, expected):
     assert utils.load_data_str('/arch', name, init, 1, hr, '00') == [expected]
 
 
+def test_load_data_str_refs_member():
+    assert utils.load_data_str(
+        '/arch', 'REFSm005_lag06', '2026110206', 1, '07', '00'
+    ) == ['/arch/REFS/m005/20261102/rrfs.t06z.m005.2dfld.3km.f007.conus.grib2']
+
+
 def test_load_data_str_unknown_model():
     with pytest.raises(ValueError, match='Unrecognized'):
         utils.load_data_str(

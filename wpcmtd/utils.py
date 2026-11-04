@@ -502,6 +502,14 @@ def load_data_str(
             f'{grib_path}/{prefix}/{ymd}/{prefix.lower()}.t{hh}z'
             f'.conus.testbed.f{fcst_hr_str}.grib2.mod'
         )
+    elif 'REFS' in name:
+        # REFS ensemble members (e.g. REFSm001_lag06), archived per member
+        # by get_rrfspN.py on the dev VM.
+        mem = name[name.index('REFS') + 4 :].split('_')[0]
+        path = (
+            f'{grib_path}/REFS/{mem}/{ymd}/rrfs.t{hh}z.{mem}.2dfld.3km'
+            f'.f{int(fcst_hr_str):03d}.conus.grib2'
+        )
     elif 'RRFS' in name:
         # RRFS deterministic 2-D fields, subset to REFC, SNOD, CSNOW and the
         # hourly APCP bucket by get_rrfs.py on the dev VM.

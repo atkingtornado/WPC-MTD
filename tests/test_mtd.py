@@ -92,6 +92,7 @@ def test_accum_str(hours, expected):
         ('NSSL-ARW-CTL_lag00', 2, 1),
         ('HRRRe60min_mem01_lag00', 25, 1),
         ('RRFS_TLE_lag06', 5, 1),
+        ('REFSm003_lag06', 5, 1),
     ],
 )
 def test_run_cycle(name, n_runs, acc):
@@ -208,6 +209,27 @@ def test_rrfs_tle_uses_six_hourly_runs(tmp_path):
     obj.setup_data(datetime.datetime(2026, 11, 2, 15))
     assert obj.offset_fcsthr == [15, 9, 3]
     assert obj.init_yrmondayhr == ['2026110200', '2026110206', '2026110212']
+
+
+def test_refs_members_and_lags(tmp_path):
+    """REFS product: 5 members, RRFS and HRRR, each with a 6 h lag."""
+    write_static_grid(tmp_path / 'archive')
+    members = [f'REFSm00{i}' for i in range(1, 6)] + ['RRFS_TLE', 'HRRRv4_TLE']
+    obj = make_mtd(
+        tmp_path,
+        load_model=[f'{m}_lag{lag}' for m in members for lag in ('00', '06')],
+        grib_path_des='MTD_QPF_REFS',
+    )
+    cycle = datetime.datetime(2026, 11, 2, 15)
+    obj.setup_data(cycle)
+    assert obj.offset_fcsthr == [3, 9] * 6 + [0, 6]
+    assert obj.init_yrmondayhr[:2] == ['2026110212', '2026110206']
+    assert obj.init_yrmondayhr[-2:] == ['2026110215', '2026110209']
+
+    lag06 = obj._plan_model(cycle, 1, tmp_path, tmp_path)
+    assert lag06.steps[0].sources[0].endswith(
+        'REFS/m001/20261102/rrfs.t06z.m001.2dfld.3km.f010.conus.grib2'
+    )
 
 
 def test_lagged_hours_past_end_used_when_run_has_them(tmp_path):
