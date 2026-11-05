@@ -32,7 +32,7 @@ from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
 from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image
 from scipy import interpolate
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import find_objects, gaussian_filter
 
 mpl.use('Agg')  # so plots can be made from cron
 import matplotlib.pyplot as plt  # noqa: E402  (backend must be chosen first)
@@ -1388,6 +1388,39 @@ def _snow_outline_color(intensity):
     return SNOW_COLORS[bisect.bisect_right(SNOW_THRESHOLDS, intensity)]
 
 
+def _object_boxes(ids_grid):
+    """Bounding slices of each object ID in ``ids_grid`` (index ID - 1)."""
+    labels = np.nan_to_num(ids_grid, nan=0.0).astype(np.int64)
+    return find_objects(np.maximum(labels, 0))
+
+
+def _padded_box(boxes, obj_id, mask):
+    """
+    The object's bounding box plus one cell on each side (inside the grid).
+
+    Contouring only this box draws the same outline as contouring the full
+    grid: the outline lies between the object and the zero cells around it.
+    Each contour keeps a copy of its grid until the figure is saved, so full
+    CONUS grids for hundreds of objects held ~7 GB per figure.  Falls back to
+    the full grid when there is no box (background, missing data) or the
+    box would hold a single value.
+    """
+    full = (slice(None), slice(None))
+    if not obj_id >= 1 or int(obj_id) > len(boxes):
+        return full
+    sl = boxes[int(obj_id) - 1]
+    if sl is None:
+        return full
+    box = tuple(
+        slice(max(s.start - 1, 0), min(s.stop + 1, n))
+        for s, n in zip(sl, mask.shape, strict=True)
+    )
+    sub = mask[box]
+    if sub.all() or not sub.any():
+        return full
+    return box
+
+
 def mtd_plot_all_snow_fcst(
     grib_path_des,
     fig_path_s,
@@ -1466,37 +1499,34 @@ def mtd_plot_all_snow_fcst(
                 if len(inten) == 0:
                     inten, obj_ids = [0], [0, 0]
 
-                # One contour pass per outline color (at most 11) rather
-                # than per object: a member's objects never overlap, so the
-                # outlines are the same, at a fraction of the memory.
-                by_color = {}
+                boxes = _object_boxes(ids_grid)
                 for obj_count, intensity in enumerate(inten, start=1):
                     if obj_count >= len(obj_ids):
                         break
+                    mask = ids_grid == obj_ids[obj_count] * 1
+                    if filled is None:
+                        with contextlib.suppress(Exception):
+                            filled = ax.contourf(
+                                lon,
+                                lat,
+                                mask * 0,
+                                levels=values,
+                                cmap=cmap,
+                                antialiased=False,
+                                vmin=np.nanmin(values),
+                                vmax=np.nanmax(values),
+                                transform=PLATE,
+                                transform_first=True,
+                            )
                     color = _snow_outline_color(intensity)
-                    by_color.setdefault(color, []).append(obj_ids[obj_count])
-                if by_color and filled is None:
-                    with contextlib.suppress(Exception):
-                        filled = ax.contourf(
-                            lon,
-                            lat,
-                            np.zeros(ids_grid.shape),
-                            levels=values,
-                            cmap=cmap,
-                            antialiased=False,
-                            vmin=np.nanmin(values),
-                            vmax=np.nanmax(values),
-                            transform=PLATE,
-                            transform_first=True,
-                        )
-                for color, ids in by_color.items():
                     if color is None:
                         continue
+                    box = _padded_box(boxes, obj_ids[obj_count], mask)
                     with contextlib.suppress(Exception):
                         ax.contour(
-                            lon,
-                            lat,
-                            np.isin(ids_grid, ids),
+                            lon[box],
+                            lat[box],
+                            mask[box],
                             antialiased=False,
                             colors=color,
                             linewidths=0.8,

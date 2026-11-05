@@ -329,50 +329,18 @@ def test_parallel_plotting_leaves_no_forkserver_socket(tmp_path):
     assert 'Traceback' not in result.stderr
 
 
-@pytest.mark.filterwarnings('ignore')
-def test_snow_outlines_one_contour_per_color(tmp_path, monkeypatch):
-    # Four objects in one member: two share a color bin, one has no outline
-    # (NaN intensity).  The plot should contour once per drawn color, with
-    # each pass covering every object of that color.
-    import cartopy.mpl.geoaxes as geoaxes
-
-    calls = []
-    real_contour = geoaxes.GeoAxes.contour
-
-    def spy(self, x, y, z, *args, **kwargs):
-        calls.append((kwargs.get('colors'), np.unique(np.argwhere(z)[:, 1])))
-        return real_contour(self, x, y, z, *args, **kwargs)
-
-    monkeypatch.setattr(geoaxes.GeoAxes, 'contour', spy)
-
-    lat, lon, _ = _synthetic_case()
-    bins = np.zeros(lat.shape + (1, 1), dtype=np.int8)
-    for obj, col in enumerate((2, 10, 18, 26), start=1):
-        bins[5:9, col : col + 4, 0, 0] = obj
-    prop = np.full((10, 4), np.nan)
-    prop[2] = 0  # time index (hour 1)
-    prop[9] = [0.12, 0.6, 0.13, np.nan]
-
-    plot.mtd_plot_all_snow_fcst(
-        'SNOW_BIN',
-        str(tmp_path),
-        [-100, 35, -90, 42],
-        1.0,
-        np.array([1.0]),
-        0.1,
-        datetime.datetime(2026, 1, 10, 12),
-        np.zeros((1, 1)),
-        ['HRRRv4_TLE_lag00.nc'],
-        lat,
-        lon,
-        bins,
-        [prop],
-        animate=False,
-    )
-    assert len(calls) == 2
-    colors = {c: set(cols) for c, cols in calls}
-    same = plot._snow_outline_color(0.12)
-    assert plot._snow_outline_color(0.13) == same
-    assert colors[same] == set(range(2, 6)) | set(range(18, 22))
-    assert colors[plot._snow_outline_color(0.6)] == set(range(10, 14))
-    assert list(tmp_path.glob('SNOW_BIN_snowobj_byhour_*_h01.png'))
+def test_padded_box_crops_to_object_plus_one_cell():
+    ids = np.zeros((10, 12))
+    ids[2:4, 3:6] = 1
+    ids[0:2, 9:12] = 2  # touches the top and right edges
+    boxes = plot._object_boxes(ids)
+    box = plot._padded_box(boxes, 1.0, ids == 1)
+    assert box == (slice(1, 5), slice(2, 7))
+    box = plot._padded_box(boxes, 2.0, ids == 2)
+    assert box == (slice(0, 3), slice(8, 12))
+    full = (slice(None), slice(None))
+    assert plot._padded_box(boxes, 0.0, ids == 0) == full  # background
+    assert plot._padded_box(boxes, np.nan, np.zeros_like(ids, bool)) == full
+    assert plot._padded_box(boxes, 7.0, ids == 7) == full  # not present
+    nan_ids = np.full((3, 3), np.nan)  # missing member
+    assert plot._object_boxes(nan_ids) == []
