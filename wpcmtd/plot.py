@@ -1466,32 +1466,37 @@ def mtd_plot_all_snow_fcst(
                 if len(inten) == 0:
                     inten, obj_ids = [0], [0, 0]
 
+                # One contour pass per outline color (at most 11) rather
+                # than per object: a member's objects never overlap, so the
+                # outlines are the same, at a fraction of the memory.
+                by_color = {}
                 for obj_count, intensity in enumerate(inten, start=1):
                     if obj_count >= len(obj_ids):
                         break
-                    mask = ids_grid == obj_ids[obj_count] * 1
-                    if filled is None:
-                        with contextlib.suppress(Exception):
-                            filled = ax.contourf(
-                                lon,
-                                lat,
-                                mask * 0,
-                                levels=values,
-                                cmap=cmap,
-                                antialiased=False,
-                                vmin=np.nanmin(values),
-                                vmax=np.nanmax(values),
-                                transform=PLATE,
-                                transform_first=True,
-                            )
                     color = _snow_outline_color(intensity)
+                    by_color.setdefault(color, []).append(obj_ids[obj_count])
+                if by_color and filled is None:
+                    with contextlib.suppress(Exception):
+                        filled = ax.contourf(
+                            lon,
+                            lat,
+                            np.zeros(ids_grid.shape),
+                            levels=values,
+                            cmap=cmap,
+                            antialiased=False,
+                            vmin=np.nanmin(values),
+                            vmax=np.nanmax(values),
+                            transform=PLATE,
+                            transform_first=True,
+                        )
+                for color, ids in by_color.items():
                     if color is None:
                         continue
                     with contextlib.suppress(Exception):
                         ax.contour(
                             lon,
                             lat,
-                            mask,
+                            np.isin(ids_grid, ids),
                             antialiased=False,
                             colors=color,
                             linewidths=0.8,
