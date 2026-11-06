@@ -32,7 +32,7 @@ from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
 from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image
 from scipy import interpolate
-from scipy.ndimage import find_objects, gaussian_filter
+from scipy.ndimage import gaussian_filter
 
 mpl.use('Agg')  # so plots can be made from cron
 import matplotlib.pyplot as plt  # noqa: E402  (backend must be chosen first)
@@ -1388,36 +1388,27 @@ def _snow_outline_color(intensity):
     return SNOW_COLORS[bisect.bisect_right(SNOW_THRESHOLDS, intensity)]
 
 
-def _object_boxes(ids_grid):
-    """Bounding slices of each object ID in ``ids_grid`` (index ID - 1)."""
-    labels = np.nan_to_num(ids_grid, nan=0.0).astype(np.int64)
-    return find_objects(np.maximum(labels, 0))
-
-
-def _padded_box(boxes, obj_id, mask):
+def _padded_box(mask):
     """
-    The object's bounding box plus one cell on each side (inside the grid).
+    Slices of ``mask``'s bounding box plus one cell on each side (inside
+    the grid).
 
     Contouring only this box draws the same outline as contouring the full
     grid: the outline lies between the object and the zero cells around it.
     Each contour keeps a copy of its grid until the figure is saved, so full
     CONUS grids for hundreds of objects held ~7 GB per figure.  Falls back to
-    the full grid when there is no box (background, missing data) or the
-    box would hold a single value.
+    the full grid when the box would hold a single value (e.g. no object).
     """
-    full = (slice(None), slice(None))
-    if not obj_id >= 1 or int(obj_id) > len(boxes):
-        return full
-    sl = boxes[int(obj_id) - 1]
-    if sl is None:
-        return full
-    box = tuple(
-        slice(max(s.start - 1, 0), min(s.stop + 1, n))
-        for s, n in zip(sl, mask.shape, strict=True)
+    rows = np.flatnonzero(mask.any(axis=1))
+    cols = np.flatnonzero(mask.any(axis=0))
+    if rows.size == 0:
+        return (slice(None), slice(None))
+    box = (
+        slice(max(rows[0] - 1, 0), min(rows[-1] + 2, mask.shape[0])),
+        slice(max(cols[0] - 1, 0), min(cols[-1] + 2, mask.shape[1])),
     )
-    sub = mask[box]
-    if sub.all() or not sub.any():
-        return full
+    if mask[box].all():
+        return (slice(None), slice(None))
     return box
 
 
@@ -1499,7 +1490,6 @@ def mtd_plot_all_snow_fcst(
                 if len(inten) == 0:
                     inten, obj_ids = [0], [0, 0]
 
-                boxes = _object_boxes(ids_grid)
                 for obj_count, intensity in enumerate(inten, start=1):
                     if obj_count >= len(obj_ids):
                         break
@@ -1521,7 +1511,7 @@ def mtd_plot_all_snow_fcst(
                     color = _snow_outline_color(intensity)
                     if color is None:
                         continue
-                    box = _padded_box(boxes, obj_ids[obj_count], mask)
+                    box = _padded_box(mask)
                     with contextlib.suppress(Exception):
                         ax.contour(
                             lon[box],

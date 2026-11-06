@@ -330,17 +330,12 @@ def test_parallel_plotting_leaves_no_forkserver_socket(tmp_path):
 
 
 def test_padded_box_crops_to_object_plus_one_cell():
-    ids = np.zeros((10, 12))
+    ids = np.zeros((10, 12), dtype=np.int8)
     ids[2:4, 3:6] = 1
-    ids[0:2, 9:12] = 2  # touches the top and right edges
-    boxes = plot._object_boxes(ids)
-    box = plot._padded_box(boxes, 1.0, ids == 1)
-    assert box == (slice(1, 5), slice(2, 7))
-    box = plot._padded_box(boxes, 2.0, ids == 2)
-    assert box == (slice(0, 3), slice(8, 12))
+    ids[0:2, 9:12] = -100  # IDs past 127 wrap negative in the int8 grid
+    assert plot._padded_box(ids == 1) == (slice(1, 5), slice(2, 7))
+    # Touches the top and right edges: no padding past the grid.
+    assert plot._padded_box(ids == -100) == (slice(0, 3), slice(8, 12))
     full = (slice(None), slice(None))
-    assert plot._padded_box(boxes, 0.0, ids == 0) == full  # background
-    assert plot._padded_box(boxes, np.nan, np.zeros_like(ids, bool)) == full
-    assert plot._padded_box(boxes, 7.0, ids == 7) == full  # not present
-    nan_ids = np.full((3, 3), np.nan)  # missing member
-    assert plot._object_boxes(nan_ids) == []
+    assert plot._padded_box(ids == 7) == full  # not present
+    assert plot._padded_box(np.ones((3, 3), bool)) == full
