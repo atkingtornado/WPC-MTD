@@ -360,14 +360,44 @@ def write_gif(frames, gif_path, delay_cs, thumbnail_path=None):
 _SHARED = {}
 
 
+def _memlog(msg):
+    """With WPCMTD_MEMLOG=1, print this process's current/peak RSS."""
+    if os.environ.get('WPCMTD_MEMLOG') != '1':
+        return
+    import resource
+
+    with open('/proc/self/statm') as f:
+        rss = int(f.read().split()[1]) * os.sysconf('SC_PAGE_SIZE') / 2**20
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    print(
+        f'MEMLOG pid {os.getpid()} rss {rss:.0f} MB peak {peak:.0f} MB: {msg}',
+        flush=True,
+    )
+
+
 def _init_worker(shared):
     _SHARED.clear()
     _SHARED.update(shared)
     mpl.use('Agg')
+    _memlog(
+        'worker init, shared '
+        + ', '.join(
+            f'{k} {getattr(v, "shape", "")} {getattr(v, "dtype", "")} '
+            f'{getattr(v, "nbytes", 0) / 2**20:.0f} MB'
+            for k, v in shared.items()
+        )
+    )
 
 
 def _call_with_shared(func, kwargs):
-    return func(**_SHARED, **kwargs)
+    job = f'{func.__name__} {kwargs.get("grib_path_des", "")} ' + str(
+        kwargs.get('hour_indices', '')
+    )
+    _memlog(f'start {job}')
+    try:
+        return func(**_SHARED, **kwargs)
+    finally:
+        _memlog(f'end {job}')
 
 
 def plot_regions_in_parallel(jobs, max_workers, shared=None):
@@ -1544,6 +1574,7 @@ def mtd_plot_all_snow_fcst(
                 ),
                 dpi=150,
             )
+            _memlog(f'{grib_path_des} snow map h{hr_count + 1:02d} saved')
 
         if animate:
             animate_all_snow_fcst(
