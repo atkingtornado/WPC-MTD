@@ -14,6 +14,7 @@ import bisect
 import concurrent.futures
 import contextlib
 import datetime
+import gc
 import logging
 import math
 import multiprocessing.forkserver
@@ -171,6 +172,10 @@ def _finish_map(fig, ax, latlon_dims, path, dpi):
     )
     fig.savefig(path, bbox_inches='tight', dpi=dpi)
     plt.close(fig)
+    # A closed figure is a web of reference cycles, so its arrays wait for
+    # the garbage collector's rare full pass; an SPT map holds hundreds of
+    # contour grids, and workers reached ~8 GB before that pass came.
+    gc.collect()
 
 
 def _blues(low, high=1.0):
